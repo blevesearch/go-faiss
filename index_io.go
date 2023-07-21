@@ -2,10 +2,13 @@ package faiss
 
 /*
 #include <stdlib.h>
+#include <stdio.h>
 #include <faiss/c_api/index_io_c.h>
 */
 import "C"
-import "unsafe"
+import (
+	"unsafe"
+)
 
 // WriteIndex writes an index to a file.
 func WriteIndex(idx Index, filename string) error {
@@ -15,6 +18,28 @@ func WriteIndex(idx Index, filename string) error {
 		return getLastError()
 	}
 	return nil
+}
+
+func WriteIndexIntoBuffer(idx Index, buf []byte) error {
+	cbuf := C.CString(string(buf))
+	if c := C.faiss_write_index_buf(
+		idx.cPtr(),
+		&cbuf,
+	); c != 0 {
+		return getLastError()
+	}
+
+	return nil
+}
+
+func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
+	var idx faissIndex
+	if c := C.faiss_read_index_buf(C.CString(string(buf)),
+		C.int(ioflags),
+		&idx.idx); c != 0 {
+		return nil, getLastError()
+	}
+	return &IndexImpl{&idx}, nil
 }
 
 // IO flags
