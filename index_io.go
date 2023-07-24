@@ -20,16 +20,27 @@ func WriteIndex(idx Index, filename string) error {
 	return nil
 }
 
-func WriteIndexIntoBuffer(idx Index, buf []byte) error {
-	cbuf := C.CString(string(buf))
+func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
+
+	// the values to be returned by the faiss APIs
+	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
+	bufSize := C.int(0)
+
 	if c := C.faiss_write_index_buf(
 		idx.cPtr(),
-		&cbuf,
+		&bufSize,
+		&tempBuf,
 	); c != 0 {
-		return getLastError()
+		return nil, getLastError()
 	}
 
-	return nil
+	// todo: get a better upper bound.
+	// todo: add checksum.
+	val := (*[1 << 32]byte)(unsafe.Pointer(tempBuf))[:bufSize:bufSize]
+
+	// todo: evaluate the free(tempBuf)
+	// C.free(unsafe.Pointer(tempBuf))
+	return val, nil
 }
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
