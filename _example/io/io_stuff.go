@@ -41,11 +41,29 @@ func main() {
 	fmt.Println("IsTrained() =", index.IsTrained())
 	index.Add(xb)
 
-	_, err = faiss.WriteIndexIntoBuffer(index)
+	buf, err := faiss.WriteIndexIntoBuffer(index)
 	if err != nil {
 		index.Delete()
 		log.Fatal(err)
 	}
 	index.Delete()
 
+	k := int64(4)
+
+	idx, err := faiss.ReadIndexFromBuffer(buf, faiss.IOFlagReadOnly)
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, ids, err := idx.Search(xq, k)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("ids (last 5 results)=")
+	for i := int64(nq) - 5; i < int64(nq); i++ {
+		for j := int64(0); j < k; j++ {
+			fmt.Printf("%5d ", ids[i*k+j])
+		}
+		fmt.Println()
+	}
 }
