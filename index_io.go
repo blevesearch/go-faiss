@@ -5,11 +5,8 @@ package faiss
 #include <stdio.h>
 #include <faiss/c_api/index_io_c.h>
 */
-
-import (
-	"C"
-	"unsafe"
-)
+import "C"
+import "unsafe"
 
 // WriteIndex writes an index to a file.
 func WriteIndex(idx Index, filename string) error {
