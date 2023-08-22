@@ -4,6 +4,7 @@ package faiss
 #include <stdlib.h>
 #include <stdio.h>
 #include <faiss/c_api/index_io_c.h>
+#include <faiss/c_api/index_io_c_ex.h>
 */
 import "C"
 import "unsafe"
