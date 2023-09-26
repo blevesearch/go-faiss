@@ -31,7 +31,7 @@ func main() {
 		xq[i*d] += float32(i) / 1000
 	}
 
-	index, err := faiss.IndexFactory(d, "IVF100,Flat", faiss.MetricL2)
+	index, err := faiss.IndexFactory(d, "SQfp16", faiss.MetricL2)
 	if err != nil {
 		log.Fatal(err)
 	}
