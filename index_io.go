@@ -36,8 +36,6 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// todo: get a better upper bound.
 	// todo: add checksum.
 	val := (*[1 << 32]byte)(unsafe.Pointer(tempBuf))[:int(bufSize):int(bufSize)]
-	// todo: evaluate the free mechanisms for the vars involved in this function.
-	// C.free(unsafe.Pointer(tempBuf))
 	return val, nil
 }
 
@@ -46,8 +44,6 @@ func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 	ptr := C.CBytes(buf)
 	size := C.int(len(buf))
 
-	// todo: evaluate the free mechanisms for the vars involved in this function.
-	// C.free(unsafe.Pointer(tempBuf))
 	var idx faissIndex
 	if c := C.faiss_read_index_buf((*C.uchar)(ptr),
 		size,
