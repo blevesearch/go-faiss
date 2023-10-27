@@ -46,7 +46,6 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 	ptr := C.CBytes(buf)
 	size := C.int(len(buf))
-
 	var idx faissIndex
 	if c := C.faiss_read_index_buf((*C.uchar)(ptr),
 		size,

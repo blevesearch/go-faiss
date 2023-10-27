@@ -52,7 +52,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	index.MakeDirectMap(2)
+	index.SetDirectMap(2)
 
 	fmt.Println("IsTrained() =", index.IsTrained())
 	index.Train(xb)
