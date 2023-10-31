@@ -20,7 +20,6 @@ func WriteIndex(idx Index, filename string) error {
 }
 
 func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
-
 	// the values to be returned by the faiss APIs
 	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
 	bufSize := C.int(0)
@@ -35,12 +34,14 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 
 	// todo: get a better upper bound.
 	// todo: add checksum.
+	// the content populated in the tempBuf is converted from *C.uchar to unsafe.Pointer
+	// and then the pointer is casted into a large byte slice which is then sliced
+	// to a length and capacity equal to bufSize returned across the cgo interface.
 	val := (*[1 << 32]byte)(unsafe.Pointer(tempBuf))[:int(bufSize):int(bufSize)]
 	return val, nil
 }
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
-
 	ptr := C.CBytes(buf)
 	size := C.int(len(buf))
 
