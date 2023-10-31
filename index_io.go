@@ -7,7 +7,9 @@ package faiss
 #include <faiss/c_api/index_io_c_ex.h>
 */
 import "C"
-import "unsafe"
+import (
+	"unsafe"
+)
 
 // WriteIndex writes an index to a file.
 func WriteIndex(idx Index, filename string) error {
@@ -44,7 +46,6 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 	ptr := C.CBytes(buf)
 	size := C.int(len(buf))
-
 	var idx faissIndex
 	if c := C.faiss_read_index_buf((*C.uchar)(ptr),
 		size,
