@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer index.Delete()
+	defer index.Close()
 
 	_, err = index.GetSubIndex()
 	if err != nil {

@@ -62,8 +62,8 @@ type Index interface {
 	// Returns the number of elements removed and error.
 	RemoveIDs(sel *IDSelector) (int, error)
 
-	// Delete frees the memory used by the index.
-	Delete()
+	// Close frees the memory used by the index.
+	Close()
 
 	cPtr() *C.FaissIndex
 }
@@ -164,7 +164,6 @@ func (idx *faissIndex) ReconstructBatch(n int64, keys []int64) (recons []float32
 		(*C.idx_t)(&keys[0]),
 		(*C.float)(&rv[0]),
 	); c != 0 {
-		// log.Printf("there is an error!\n")
 		err = getLastError()
 	}
 
@@ -230,7 +229,7 @@ func (idx *faissIndex) RemoveIDs(sel *IDSelector) (int, error) {
 	return int(nRemoved), nil
 }
 
-func (idx *faissIndex) Delete() {
+func (idx *faissIndex) Close() {
 	C.faiss_Index_free(idx.idx)
 }
 
