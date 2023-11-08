@@ -164,6 +164,7 @@ func (idx *faissIndex) ReconstructBatch(n int64, keys []int64) (recons []float32
 		(*C.idx_t)(&keys[0]),
 		(*C.float)(&rv[0]),
 	); c != 0 {
+		// log.Printf("there is an error!\n")
 		err = getLastError()
 	}
 
