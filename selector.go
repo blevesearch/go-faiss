@@ -33,7 +33,7 @@ func NewIDSelectorBatch(indices []int64) (*IDSelector, error) {
 	return &IDSelector{(*C.FaissIDSelector)(sel)}, nil
 }
 
-// NewIDSelectorBatch creates a new batch selector.
+// NewIDSelectorBatch creates a new array selector.
 func NewIDSelectorArray(ids []int64) (*IDSelector, error) {
 	var sel *C.FaissIDSelectorArray
 	if c := C.faiss_IDSelectorArray_new(
