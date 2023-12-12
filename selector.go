@@ -33,6 +33,19 @@ func NewIDSelectorBatch(indices []int64) (*IDSelector, error) {
 	return &IDSelector{(*C.FaissIDSelector)(sel)}, nil
 }
 
+// NewIDSelectorBatch creates a new batch selector.
+func NewIDSelectorArray(ids []int64) (*IDSelector, error) {
+	var sel *C.FaissIDSelectorArray
+	if c := C.faiss_IDSelectorArray_new(
+		&sel,
+		C.size_t(len(ids)),
+		(*C.idx_t)(&ids[0]),
+	); c != 0 {
+		return nil, getLastError()
+	}
+	return &IDSelector{(*C.FaissIDSelector)(sel)}, nil
+}
+
 // Delete frees the memory associated with s.
 func (s *IDSelector) Delete() {
 	C.faiss_IDSelector_free(s.sel)
