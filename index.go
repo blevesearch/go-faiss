@@ -10,6 +10,8 @@ package faiss
 import "C"
 import (
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"unsafe"
 )
 
@@ -92,7 +94,18 @@ func (idx *faissIndex) MetricType() int {
 	return int(C.faiss_Index_metric_type(idx.idx))
 }
 
-func (idx *faissIndex) Train(x []float32) error {
+func (idx *faissIndex) Train(x []float32) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if err1 := recover(); err1 != nil {
+			buf := make([]byte, 2048)
+			n := runtime.Stack(buf, false)
+			fmt.Printf("FATA: stack trace: %s\n", buf[:n])
+			fmt.Printf("FATA: crash error: %v\n", err1)
+			fmt.Printf("FATA: debug info data location: %p index location: %p isdataNil:%v\n", x, idx.idx, x == nil)
+			err = fmt.Errorf("train panic encountered")
+		}
+	}()
 	n := len(x) / idx.D()
 	if c := C.faiss_Index_train(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
 		return getLastError()
@@ -108,7 +121,18 @@ func (idx *faissIndex) Add(x []float32) error {
 	return nil
 }
 
-func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
+func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) (err error) {
+	debug.SetPanicOnFault(true)
+	defer func() {
+		if err1 := recover(); err1 != nil {
+			buf := make([]byte, 2048)
+			n := runtime.Stack(buf, false)
+			fmt.Printf("FATA: stack trace: %s\n", buf[:n])
+			fmt.Printf("FATA: crash error: %v\n", err1)
+			fmt.Printf("FATA: debug info data location: %p index location: %p isdataNil:%v xids:%p isIdsNil:%v\n", x, idx.idx, x == nil, xids, xids == nil)
+			err = fmt.Errorf("add panic encountered")
+		}
+	}()
 	n := len(x) / idx.D()
 	if c := C.faiss_Index_add_with_ids(
 		idx.idx,
@@ -157,7 +181,18 @@ func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
 }
 
 func (idx *faissIndex) ReconstructBatch(n int64, keys []int64) (recons []float32, err error) {
+	debug.SetPanicOnFault(true)
 	rv := make([]float32, int(n)*idx.D())
+	defer func() {
+		if err1 := recover(); err1 != nil {
+			buf := make([]byte, 2048)
+			n := runtime.Stack(buf, false)
+			fmt.Printf("FATA: stack trace: %s\n", buf[:n])
+			fmt.Printf("FATA: crash error: %v\n", err1)
+			fmt.Printf("FATA: debug info data location: %p index location: %p isdataNil:%v rv:%p\n", keys, idx.idx, keys == nil, rv)
+			err = fmt.Errorf("reconstruction panic encountered")
+		}
+	}()
 	if c := C.faiss_Index_reconstruct_batch(
 		idx.idx,
 		C.idx_t(n),
