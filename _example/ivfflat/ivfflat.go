@@ -37,13 +37,7 @@ func main() {
 		xq[i*d] += float32(i) / 1000
 	}
 
-	indexF, err := faiss.IndexFactory(d, "IDMap2,IVF100,SQ8", faiss.MetricInnerProduct)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer indexF.Close()
-
-	index, err := indexF.GetSubIndex()
+	index, err := faiss.IndexFactory(d, "IVF100,SQ8", faiss.MetricInnerProduct)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -83,7 +77,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	_, ids, err = index.Search(xq, k)
+	// Definitive test - exclude ALL the IDs in an index
+	// The search results should all return -1.
+	_, ids, err = index.SearchWithoutIDs(xq, k, ids1)
 	if err != nil {
 		log.Fatal(err)
 	}
