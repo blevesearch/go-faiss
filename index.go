@@ -3,6 +3,8 @@ package faiss
 /*
 #include <stdlib.h>
 #include <faiss/c_api/Index_c.h>
+#include <faiss/c_api/IndexIVF_c.h>
+#include <faiss/c_api/IndexIVF_c_ex.h>
 #include <faiss/c_api/Index_c_ex.h>
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
 #include <faiss/c_api/index_factory_c.h>
@@ -156,6 +158,15 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 
 	var sp *C.FaissSearchParameters
 	C.faiss_SearchParameters_new(&sp, (*C.FaissIDSelector)(excludeSelector.sel))
+	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
+	if ivfPtr != nil {
+		sp = C.faiss_SearchParametersIVF_cast(sp)
+		C.faiss_SearchParametersIVF_new_with_sel(&sp, (*C.FaissIDSelector)(excludeSelector.sel))
+	}
+	defer func() {
+		excludeSelector.Delete()
+		C.faiss_SearchParameters_free(sp)
+	}()
 
 	n := len(x) / idx.D()
 	distances = make([]float32, int64(n)*k)
