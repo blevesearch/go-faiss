@@ -41,6 +41,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer index.Close()
 
 	index.SetDirectMap(2)
 
