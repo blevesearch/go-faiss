@@ -33,6 +33,8 @@ func NewIDSelectorBatch(indices []int64) (*IDSelector, error) {
 	return &IDSelector{(*C.FaissIDSelector)(sel)}, nil
 }
 
+// NewIDSelectorNot creates a new Not selector, wrapped arround a
+// batch selector, with the IDs in 'exclude'.
 func NewIDSelectorNot(exclude []int64) (*IDSelector, error) {
 	batchSelector, err := NewIDSelectorBatch(exclude)
 	if err != nil {

@@ -151,6 +151,10 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 	distances []float32, labels []int64, err error,
 ) {
+	if len(exclude) <= 0 {
+		return idx.Search(x, k)
+	}
+
 	excludeSelector, err := NewIDSelectorNot(exclude)
 	if err != nil {
 		return nil, nil, err
@@ -163,10 +167,6 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 		sp = C.faiss_SearchParametersIVF_cast(sp)
 		C.faiss_SearchParametersIVF_new_with_sel(&sp, (*C.FaissIDSelector)(excludeSelector.sel))
 	}
-	defer func() {
-		excludeSelector.Delete()
-		C.faiss_SearchParameters_free(sp)
-	}()
 
 	n := len(x) / idx.D()
 	distances = make([]float32, int64(n)*k)
@@ -178,9 +178,12 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 		(*C.float)(&x[0]),
 		C.idx_t(k), sp,
 		(*C.float)(&distances[0]),
-		(*C.idx_t)(&labels[0])); c != 0 {
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
 		err = getLastError()
 	}
+	excludeSelector.Delete()
+	C.faiss_SearchParameters_free(sp)
 	return
 }
 
