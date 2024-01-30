@@ -53,7 +53,7 @@ type Index interface {
 
 	Reconstruct(key int64) ([]float32, error)
 
-	ReconstructBatch(n int64, keys []int64) (recons []float32, err error)
+	ReconstructBatch(keys []int64, recons []float32) ([]float32, error)
 
 	MergeFrom(other Index, add_id int64) error
 
@@ -188,7 +188,6 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 }
 
 func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
-
 	rv := make([]float32, idx.D())
 	if c := C.faiss_Index_reconstruct(
 		idx.idx,
@@ -201,18 +200,19 @@ func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
 	return rv, err
 }
 
-func (idx *faissIndex) ReconstructBatch(n int64, keys []int64) (recons []float32, err error) {
-	rv := make([]float32, int(n)*idx.D())
+func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float32, error) {
+	var err error
+	n := int64(len(keys))
 	if c := C.faiss_Index_reconstruct_batch(
 		idx.idx,
 		C.idx_t(n),
 		(*C.idx_t)(&keys[0]),
-		(*C.float)(&rv[0]),
+		(*C.float)(&recons[0]),
 	); c != 0 {
 		err = getLastError()
 	}
 
-	return rv, err
+	return recons, err
 }
 
 func (i *IndexImpl) MergeFrom(other Index, add_id int64) error {
