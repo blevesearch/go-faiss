@@ -71,6 +71,9 @@ type Index interface {
 	// Close frees the memory used by the index.
 	Close()
 
+	// consults the C++ side to get the size of the index
+	Size() uint64
+
 	cPtr() *C.FaissIndex
 }
 
@@ -80,6 +83,11 @@ type faissIndex struct {
 
 func (idx *faissIndex) cPtr() *C.FaissIndex {
 	return idx.idx
+}
+
+func (idx *faissIndex) Size() uint64 {
+	size := C.faiss_Index_size(idx.idx)
+	return uint64(size)
 }
 
 func (idx *faissIndex) D() int {
