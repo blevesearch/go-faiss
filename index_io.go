@@ -24,7 +24,7 @@ func WriteIndex(idx Index, filename string) error {
 func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// the values to be returned by the faiss APIs
 	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
-	bufSize := C.int(0)
+	bufSize := C.size_t(0)
 
 	if c := C.faiss_write_index_buf(
 		idx.cPtr(),
@@ -44,7 +44,11 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// and then the pointer is casted into a large byte slice which is then sliced
 	// to a length and capacity equal to bufSize returned across the cgo interface.
 	// NOTE: it still points to the C memory though
-	val := (*[1 << 32]byte)(unsafe.Pointer(tempBuf))[:int(bufSize):int(bufSize)]
+
+	// the maximum size of the buffer allowed is 2^32 bytes (4GB = 4294967296 B)
+	// Therefore the maximum size of the buffer is 4294967296 bytes = max(uint32).
+	// TODO: Support for larger buffer sizes, where the buffer size is greater than 4GB.
+	val := (*[1 << 32]byte)(unsafe.Pointer(tempBuf))[:uint32(bufSize):uint32(bufSize)]
 	rv := make([]byte, len(val))
 	// an explicit copy is necessary to free the memory on C heap and then return
 	// the rv back to the caller which is definitely on goruntime space (which will
