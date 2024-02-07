@@ -46,10 +46,11 @@ type Index interface {
 	// Search queries the index with the vectors in x.
 	// Returns the IDs of the k nearest neighbors for each query vector and the
 	// corresponding distances.
-	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
+	Search(x []float32, k int64, distanceBuffer []float32,
+		labelBuffer []int64) ([]float32, []int64, error)
 
-	SearchWithoutIDs(x []float32, k int64, exclude []int64) (distances []float32,
-		labels []int64, err error)
+	SearchWithoutIDs(x []float32, k int64, exclude []int64,
+		distanceBuffer []float32, labelBuffer []int64) ([]float32, []int64, error)
 
 	Reconstruct(key int64) ([]float32, error)
 
@@ -135,32 +136,29 @@ func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
 	return nil
 }
 
-func (idx *faissIndex) Search(x []float32, k int64) (
-	distances []float32, labels []int64, err error,
-) {
+func (idx *faissIndex) Search(x []float32, k int64, distanceBuffer []float32,
+	labelBuffer []int64) ([]float32, []int64, error) {
 
-	n := len(x) / idx.D()
-	distances = make([]float32, int64(n)*k)
-	labels = make([]int64, int64(n)*k)
+	var err error
 	if c := C.faiss_Index_search(
 		idx.idx,
-		C.idx_t(n),
+		C.idx_t(1),
 		(*C.float)(&x[0]),
 		C.idx_t(k),
-		(*C.float)(&distances[0]),
-		(*C.idx_t)(&labels[0]),
+		(*C.float)(&distanceBuffer[0]),
+		(*C.idx_t)(&labelBuffer[0]),
 	); c != 0 {
 		err = getLastError()
 	}
 
-	return
+	return distanceBuffer, labelBuffer, err
 }
 
-func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
-	distances []float32, labels []int64, err error,
-) {
+func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64,
+	distanceBuffer []float32, labelBuffer []int64) ([]float32, []int64, error) {
+
 	if len(exclude) <= 0 {
-		return idx.Search(x, k)
+		return idx.Search(x, k, distanceBuffer, labelBuffer)
 	}
 
 	excludeSelector, err := NewIDSelectorNot(exclude)
@@ -176,23 +174,19 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 		C.faiss_SearchParametersIVF_new_with_sel(&sp, (*C.FaissIDSelector)(excludeSelector.sel))
 	}
 
-	n := len(x) / idx.D()
-	distances = make([]float32, int64(n)*k)
-	labels = make([]int64, int64(n)*k)
-
 	if c := C.faiss_Index_search_with_params(
 		idx.idx,
-		C.idx_t(n),
+		C.idx_t(1),
 		(*C.float)(&x[0]),
 		C.idx_t(k), sp,
-		(*C.float)(&distances[0]),
-		(*C.idx_t)(&labels[0]),
+		(*C.float)(&distanceBuffer[0]),
+		(*C.idx_t)(&labelBuffer[0]),
 	); c != 0 {
 		err = getLastError()
 	}
 	excludeSelector.Delete()
 	C.faiss_SearchParameters_free(sp)
-	return
+	return distanceBuffer, labelBuffer, err
 }
 
 func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
