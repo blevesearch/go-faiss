@@ -68,7 +68,7 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 	ptr := (*C.uchar)(unsafe.Pointer(&buf[0]))
-	size := C.int(len(buf))
+	size := C.size_t(len(buf))
 
 	// the idx var has C.FaissIndex within the struct which is nil as of now.
 	var idx faissIndex
