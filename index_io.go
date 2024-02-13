@@ -46,6 +46,14 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// the bufSize is of type size_t  which is equivalent to a uint in golang, so
 	// the conversion is safe.
 	val := unsafe.Slice((*byte)(unsafe.Pointer(tempBuf)), uint(bufSize))
+	// NOTE: This method is compatible with 64-bit systems but may encounter issues on 32-bit systems.
+	// leading to vector indexing being supported only for 64-bit systems.
+	// This limitation arises because the maximum allowed length of a slice on 32-bit systems
+	// is math.MaxInt32 (2^31-1), whereas the maximum value of a size_t in C++ is math.MaxUInt32
+	// (4^31-1), exceeding the maximum allowed size of a slice in Go.
+	// Consequently, the bufSize returned by faiss_write_index_buf might exceed the
+	// maximum allowed size of a slice in Go, leading to a panic when attempting to
+	// create the following slice rv.
 	rv := make([]byte, uint(bufSize))
 	// an explicit copy is necessary to free the memory on C heap and then return
 	// the rv back to the caller which is definitely on goruntime space (which will
