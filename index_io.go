@@ -38,18 +38,15 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// something that's present on the C memory space, so not available to go's
 	// GC. needs to be freed when its of no more use.
 
-	// todo: get a better upper bound.
 	// todo: add checksum.
 	// the content populated in the tempBuf is converted from *C.uchar to unsafe.Pointer
 	// and then the pointer is casted into a large byte slice which is then sliced
 	// to a length and capacity equal to bufSize returned across the cgo interface.
 	// NOTE: it still points to the C memory though
-
-	// the maximum size of the buffer allowed is 2^32 bytes (4GB = 4294967296 B)
-	// Therefore the maximum size of the buffer is 4294967296 bytes = max(uint32).
-	// TODO: Support for larger buffer sizes, where the buffer size is greater than 4GB.
-	val := (*[1 << 32]byte)(unsafe.Pointer(tempBuf))[:uint32(bufSize):uint32(bufSize)]
-	rv := make([]byte, len(val))
+	// the bufSize is of type size_t  which is equivalent to a uint in golang, so
+	// the conversion is safe.
+	val := unsafe.Slice((*byte)(unsafe.Pointer(tempBuf)), uint(bufSize))
+	rv := make([]byte, uint(bufSize))
 	// an explicit copy is necessary to free the memory on C heap and then return
 	// the rv back to the caller which is definitely on goruntime space (which will
 	// GC'd later on).
@@ -65,6 +62,7 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// p.s: no need to free "val" since the underlying memory is same for both the
 	// vars
 	C.free(unsafe.Pointer(tempBuf))
+	val = nil
 	return rv, nil
 }
 
