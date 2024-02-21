@@ -8,9 +8,15 @@ package faiss
 #include <faiss/c_api/IndexIVF_c_ex.h>
 */
 import "C"
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+)
 
 func (idx *IndexImpl) SetDirectMap(mapType int) (err error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
 		return fmt.Errorf("index is not of ivf type")
@@ -25,6 +31,9 @@ func (idx *IndexImpl) SetDirectMap(mapType int) (err error) {
 }
 
 func (idx *IndexImpl) GetSubIndex() (*IndexImpl, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ptr := C.faiss_IndexIDMap2_cast(idx.cPtr())
 	if ptr == nil {
 		return nil, fmt.Errorf("index is not a id map")
