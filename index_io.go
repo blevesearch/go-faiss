@@ -30,6 +30,9 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
 	bufSize := C.size_t(0)
 
+	// safe to free the c memory allocated while serializing the index
+	defer C.free(unsafe.Pointer(tempBuf))
+
 	if c := C.faiss_write_index_buf(
 		idx.cPtr(),
 		&bufSize,
@@ -50,6 +53,7 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// the bufSize is of type size_t  which is equivalent to a uint in golang, so
 	// the conversion is safe.
 	val := unsafe.Slice((*byte)(unsafe.Pointer(tempBuf)), uint(bufSize))
+
 	// NOTE: This method is compatible with 64-bit systems but may encounter issues on 32-bit systems.
 	// leading to vector indexing being supported only for 64-bit systems.
 	// This limitation arises because the maximum allowed length of a slice on 32-bit systems
@@ -69,12 +73,10 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// a cheaper calloc rather than malloc can be used to make any extra allocations
 	// cheaper.
 	copy(rv, val)
-	// safe to free the c memory allocated while serializing the index, and the rv
-	// is something that's present in go runtime so different address space altogether
-	// p.s: no need to free "val" since the underlying memory is same for both the
-	// vars
-	C.free(unsafe.Pointer(tempBuf))
+
+	// p.s: no need to free "val" since the underlying memory is same as tempBuf (deferred free)
 	val = nil
+
 	return rv, nil
 }
 
