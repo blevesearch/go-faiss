@@ -8,7 +8,6 @@ package faiss
 */
 import "C"
 import (
-	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -73,7 +72,8 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// cheaper.
 	copy(rv, val)
 
-	// safe to free the c memory allocated while serializing the index
+	// safe to free the c memory allocated while serializing the index;
+	// rv is from go runtime - so different address space altogether
 	C.free(unsafe.Pointer(tempBuf))
 	// p.s: no need to free "val" since the underlying memory is same as tempBuf (deferred free)
 	val = nil
@@ -82,6 +82,9 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 }
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ptr := (*C.uchar)(unsafe.Pointer(&buf[0]))
 	size := C.size_t(len(buf))
 
@@ -91,7 +94,7 @@ func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 		size,
 		C.int(ioflags),
 		&idx.idx); c != 0 {
-		return nil, fmt.Errorf("read index from buffer failed")
+		return nil, getLastError()
 	}
 
 	ptr = nil
