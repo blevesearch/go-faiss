@@ -148,7 +148,6 @@ func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
 func (idx *faissIndex) Search(x []float32, k int64) (
 	distances []float32, labels []int64, err error,
 ) {
-
 	n := len(x) / idx.D()
 	distances = make([]float32, int64(n)*k)
 	labels = make([]int64, int64(n)*k)
@@ -169,9 +168,6 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64) (
 	distances []float32, labels []int64, err error,
 ) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	if len(exclude) <= 0 {
 		return idx.Search(x, k)
 	}
