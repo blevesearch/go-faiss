@@ -8,6 +8,7 @@ package faiss
 */
 import "C"
 import (
+	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -30,14 +31,12 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
 	bufSize := C.size_t(0)
 
-	// safe to free the c memory allocated while serializing the index
-	defer C.free(unsafe.Pointer(tempBuf))
-
 	if c := C.faiss_write_index_buf(
 		idx.cPtr(),
 		&bufSize,
 		&tempBuf,
 	); c != 0 {
+		C.free(unsafe.Pointer(tempBuf))
 		return nil, getLastError()
 	}
 
@@ -74,6 +73,8 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// cheaper.
 	copy(rv, val)
 
+	// safe to free the c memory allocated while serializing the index
+	C.free(unsafe.Pointer(tempBuf))
 	// p.s: no need to free "val" since the underlying memory is same as tempBuf (deferred free)
 	val = nil
 
@@ -81,9 +82,6 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 }
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	ptr := (*C.uchar)(unsafe.Pointer(&buf[0]))
 	size := C.size_t(len(buf))
 
@@ -93,7 +91,7 @@ func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 		size,
 		C.int(ioflags),
 		&idx.idx); c != 0 {
-		return nil, getLastError()
+		return nil, fmt.Errorf("read index from buffer failed")
 	}
 
 	ptr = nil

@@ -29,10 +29,12 @@ func NewParameterSpace() (*ParameterSpace, error) {
 // SetIndexParameter sets one of the parameters.
 func (p *ParameterSpace) SetIndexParameter(idx Index, name string, val float64) error {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	cname := C.CString(name)
-	defer C.free(unsafe.Pointer(cname))
+
+	defer func() {
+		C.free(unsafe.Pointer(cname))
+		runtime.UnlockOSThread()
+	}()
 
 	c := C.faiss_ParameterSpace_set_index_parameter(
 		p.ps, idx.cPtr(), cname, C.double(val))
