@@ -27,7 +27,7 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	defer runtime.UnlockOSThread()
 
 	// the values to be returned by the faiss APIs
-	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
+	var tempBuf *C.uchar = nil
 	bufSize := C.size_t(0)
 
 	if c := C.faiss_write_index_buf(

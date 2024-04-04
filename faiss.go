@@ -5,10 +5,11 @@
 package faiss
 
 /*
-#cgo LDFLAGS: -lfaiss_c
+#cgo LDFLAGS: -ljemalloc_faiss -lfaiss_c
 
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/error_c.h>
+#include <faiss/c_api/jemalloc_stat.h>
 */
 import "C"
 import "errors"
@@ -28,3 +29,11 @@ const (
 	MetricBrayCurtis    = C.METRIC_BrayCurtis
 	MetricJensenShannon = C.METRIC_JensenShannon
 )
+
+func GetHeapMemoryUsed() uint64 {
+	return uint64(C.jm_allocated())
+}
+
+func GetHeapMemoryResident() uint64 {
+	return uint64(C.jm_resident())
+}
