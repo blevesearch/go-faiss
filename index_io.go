@@ -108,6 +108,7 @@ func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 
 const (
 	IOFlagMmap     = C.FAISS_IO_FLAG_MMAP
+	IOFlagReadMmap = C.FAISS_IO_FLAG_READ_MMAP
 	IOFlagReadOnly = C.FAISS_IO_FLAG_READ_ONLY
 )
 
