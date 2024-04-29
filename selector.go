@@ -11,9 +11,20 @@ type IDSelector struct {
 	sel *C.FaissIDSelector
 }
 
+// Delete frees the memory associated with s.
+func (s *IDSelector) Delete() {
+	C.faiss_IDSelector_free(s.sel)
+}
+
 type IDSelectorBatch struct {
 	sel      *C.FaissIDSelector
 	batchSel *C.FaissIDSelector
+}
+
+// Delete frees the memory associated with s.
+func (s *IDSelectorBatch) Delete() {
+	C.faiss_IDSelector_free(s.sel)
+	C.faiss_IDSelector_free(s.batchSel)
 }
 
 // NewIDSelectorRange creates a selector that removes IDs on [imin, imax).
@@ -64,10 +75,4 @@ func NewIDSelectorNot(exclude []int64) (*IDSelectorBatch, error) {
 		return nil, getLastError()
 	}
 	return &IDSelectorBatch{sel: (*C.FaissIDSelector)(sel), batchSel: batchSelector.sel}, nil
-}
-
-// Delete frees the memory associated with s.
-func (s *IDSelectorBatch) Delete() {
-	C.faiss_IDSelector_free(s.sel)
-	C.faiss_IDSelector_free(s.batchSel)
 }
