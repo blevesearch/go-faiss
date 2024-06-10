@@ -75,10 +75,12 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 
 	// safe to free the c memory allocated while serializing the index;
 	// rv is from go runtime - so different address space altogether
+	fmt.Printf("bufSize - %+v\n", bufSize)
 	if tempBuf == nil {
 		fmt.Println("Free on nil")
+	} else {
+		C.free(unsafe.Pointer(tempBuf))
 	}
-	C.free(unsafe.Pointer(tempBuf))
 	// p.s: no need to free "val" since the underlying memory is same as tempBuf (deferred free)
 	val = nil
 
@@ -92,6 +94,7 @@ func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
 	ptr := (*C.uchar)(unsafe.Pointer(&buf[0]))
 	size := C.size_t(len(buf))
 
+	fmt.Printf("ioflags - %+v\n", ioflags)
 	// the idx var has C.FaissIndex within the struct which is nil as of now.
 	var idx faissIndex
 	if c := C.faiss_read_index_buf(ptr,
