@@ -23,7 +23,7 @@ func WriteIndex(idx Index, filename string) error {
 
 func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	// the values to be returned by the faiss APIs
-	tempBuf := (*C.uchar)(C.malloc(C.size_t(0)))
+	tempBuf := (*C.uchar)(nil)
 	bufSize := C.size_t(0)
 
 	if c := C.faiss_write_index_buf(
