@@ -55,17 +55,19 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 	// # check if the index is IVF and set the search params
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
 		rv.sp = C.faiss_SearchParametersIVF_cast(rv.sp)
-		if len(params) == 0 {
+		if len(params) == 0 && sel == nil {
 			return rv, nil
 		}
 
 		var ivfParams searchParamsIVF
-		if err := json.Unmarshal(params, &ivfParams); err != nil {
-			return rv, fmt.Errorf("failed to unmarshal IVF search params, "+
-				"err:%v", err)
-		}
-		if err := ivfParams.Validate(); err != nil {
-			return rv, err
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &ivfParams); err != nil {
+				return rv, fmt.Errorf("failed to unmarshal IVF search params, "+
+					"err:%v", err)
+			}
+			if err := ivfParams.Validate(); err != nil {
+				return rv, err
+			}
 		}
 
 		var nprobe, maxCodes int
