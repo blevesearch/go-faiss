@@ -192,10 +192,10 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	params json.RawMessage) (distances []float32, labels []int64, err error,
 ) {
 	includeSelector, err := NewIDSelectorBatch(include)
-	defer includeSelector.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer includeSelector.Delete()
 
 	searchParams, err := NewSearchParams(idx, params, includeSelector.sel)
 	if err != nil {
