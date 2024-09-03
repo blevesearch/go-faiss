@@ -52,7 +52,7 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		return rv, fmt.Errorf("failed to create faiss search params")
 	}
 
-	// # check if the index is IVF and set the search params
+	// check if the index is IVF and set the search params
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
 		rv.sp = C.faiss_SearchParametersIVF_cast(rv.sp)
 		if len(params) == 0 {
@@ -73,8 +73,13 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		if ivfParams.NprobePct > 0 {
 			nlist := float32(C.faiss_IndexIVF_nlist(ivfIdx))
 			nprobe = int(nlist * (ivfParams.NprobePct / 100))
+			if nprobe == 0 {
+				// in the situation when the calculated nprobe happens to be
+				// between 0 and 1, we'll round it up.
+				nprobe = 1
+			}
 		} else {
-			// It's important to set nprobe to the value decided at the time of
+			// it's important to set nprobe to the value decided at the time of
 			// index creation. Otherwise, nprobe will be set to the default
 			// value of 1.
 			nprobe = int(C.faiss_IndexIVF_nprobe(ivfIdx))
