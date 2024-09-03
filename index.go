@@ -9,6 +9,7 @@ package faiss
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
 #include <faiss/c_api/index_factory_c.h>
 #include <faiss/c_api/MetaIndexes_c.h>
+#include <faiss/c_api/utils/distances_c.h>
 */
 import "C"
 import (
@@ -357,4 +358,16 @@ func IndexFactory(d int, description string, metric int) (*IndexImpl, error) {
 
 func SetOMPThreads(n uint) {
 	C.faiss_set_omp_threads(C.uint(n))
+}
+
+func RenormL2(d int, nx int, x []float32) {
+	C.faiss_fvec_renorm_L2(
+		C.size_t(d),
+		C.size_t(nx),
+		(*C.float)(&x[0]))
+}
+
+func NormalizeVector(vector []float32) []float32 {
+	RenormL2(len(vector), 1, vector)
+	return vector
 }
