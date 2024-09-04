@@ -72,12 +72,9 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 
 		if ivfParams.NprobePct > 0 {
 			nlist := float32(C.faiss_IndexIVF_nlist(ivfIdx))
-			nprobe = int(nlist * (ivfParams.NprobePct / 100))
-			if nprobe == 0 {
-				// in the situation when the calculated nprobe happens to be
-				// between 0 and 1, we'll round it up.
-				nprobe = 1
-			}
+			// in the situation when the calculated nprobe happens to be
+			// between 0 and 1, we'll round it up.
+			nprobe = max(int(nlist * (ivfParams.NprobePct / 100)), 1)
 		} else {
 			// it's important to set nprobe to the value decided at the time of
 			// index creation. Otherwise, nprobe will be set to the default
