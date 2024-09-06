@@ -46,7 +46,7 @@ func (s *searchParamsIVF) Validate() error {
 // thus caller must clean up the object
 // by invoking Delete() method, even if an error is returned.
 func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
-) (*SearchParams, error) {
+	nprobe int) (*SearchParams, error) {
 	rv := &SearchParams{}
 	if c := C.faiss_SearchParameters_new(&rv.sp, sel); c != 0 {
 		return rv, fmt.Errorf("failed to create faiss search params")
@@ -76,7 +76,7 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 			nlist := float32(C.faiss_IndexIVF_nlist(ivfIdx))
 			// in the situation when the calculated nprobe happens to be
 			// between 0 and 1, we'll round it up.
-			nprobe = max(int(nlist * (ivfParams.NprobePct / 100)), 1)
+			nprobe = max(int(nlist*(ivfParams.NprobePct/100)), 1)
 		} else {
 			// it's important to set nprobe to the value decided at the time of
 			// index creation. Otherwise, nprobe will be set to the default
