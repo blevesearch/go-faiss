@@ -62,8 +62,9 @@ type Index interface {
 	SearchWithIDs(x []float32, k int64, include []int64, params json.RawMessage) (distances []float32,
 		labels []int64, err error)
 
-	SearchSpecifiedClusters(include, centroidIDs []int64, k int64, x,
-		centroidDis []float32, params json.RawMessage) ([]float32, []int64, error)
+	SearchSpecifiedClusters(include, eligibleCentroidIDs []int64, minEligibleCentroids,
+		totalEligibleCentroids int, k int64, x, centroidDis []float32,
+		params json.RawMessage) ([]float32, []int64, error)
 
 	Reconstruct(key int64) ([]float32, error)
 
@@ -156,18 +157,32 @@ func (idx *faissIndex) GetClusterAssignment() (map[int64][]int64, error) {
 	return clusterVectorIDMap, nil
 }
 
-func (idx *faissIndex) SearchSpecifiedClusters(include, centroidIDs []int64, k int64, x,
-	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
+func (idx *faissIndex) SearchSpecifiedClusters(include, eligibleCentroidIDs []int64,
+	minEligibleCentroids, totalEligibleCentroids int, k int64, x, centroidDis []float32,
+	params json.RawMessage) ([]float32, []int64, error) {
 	includeSelector, err := NewIDSelectorBatch(include)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer includeSelector.Delete()
 
-	// Have to override nprobe in the search params to len(centroidIDs) so that more than
-	// nprobe clusters will be searched if necessary.
-	searchParams, err := NewSearchParams(idx, params, includeSelector.sel,
-		len(centroidIDs))
+	tempParams := tempSearchParamsIVF{}
+	// Applies only to IVF indexes.
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
+		tempParams.Nlist = totalEligibleCentroids
+		// Have to override nprobe so that more clusters will be searched for this
+		// query, if required.
+		tempParams.Nprobe = minEligibleCentroids
+		// Only consider the vectors eligible to be searched, based on deletions/
+		// filter queries.
+		tempParams.Nvecs = len(include)
+	}
+	tempParamsBytes, err := json.Marshal(tempParams)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	searchParams, err := NewSearchParams(idx, params, includeSelector.sel, tempParamsBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,8 +192,12 @@ func (idx *faissIndex) SearchSpecifiedClusters(include, centroidIDs []int64, k i
 	distances := make([]float32, int64(n)*k)
 	labels := make([]int64, int64(n)*k)
 
+	effectiveNprobe := GetNProbeFromSearchParams(searchParams)
+	eligibleCentroidIDs = eligibleCentroidIDs[:effectiveNprobe]
+	centroidDis = centroidDis[:effectiveNprobe]
+
 	if c := C.faiss_IndexIVF_search_preassigned_with_params(idx.idx, (C.idx_t)(n),
-		(*C.float)(&x[0]), (C.idx_t)(k), (*C.idx_t)(&centroidIDs[0]), (*C.float)(&centroidDis[0]),
+		(*C.float)(&x[0]), (C.idx_t)(k), (*C.idx_t)(&eligibleCentroidIDs[0]), (*C.float)(&centroidDis[0]),
 		(*C.float)(&distances[0]), (*C.idx_t)(&labels[0]), (C.int)(0), searchParams.sp); c != 0 {
 		return nil, nil, getLastError()
 	}
@@ -236,7 +255,17 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64,
 		defer excludeSelector.Delete()
 	}
 
-	searchParams, err := NewSearchParams(idx, params, selector, 0)
+	tempParams := tempSearchParamsIVF{}
+	// Applies only to IVF indexes.
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
+		tempParams.Nvecs = int(idx.Ntotal()) - len(exclude)
+	}
+	tempParamsBytes, err := json.Marshal(tempParams)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector, tempParamsBytes)
 	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
@@ -255,18 +284,12 @@ func (idx *faissIndex) GetCentroidDistances(x []float32, centroidIDs []int64) (
 	}
 	defer includeSelector2.Delete()
 
-	searchParams2, err := NewSearchParams(idx, json.RawMessage{},
-		includeSelector2.sel, len(centroidIDs))
-	if err != nil {
-		return nil, nil, err
-	}
-	defer searchParams2.Delete()
-
 	centroid_ids := make([]int64, len(centroidIDs))
 	centroid_distances := make([]float32, len(centroidIDs))
 
-	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (*C.float)(&x[0]), (C.int)(len(centroidIDs)),
-		searchParams2.sp, (*C.float)(&centroid_distances[0]), (*C.idx_t)(&centroid_ids[0]))
+	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (*C.float)(&x[0]),
+		(C.int)(len(centroidIDs)), (*C.float)(&centroid_distances[0]),
+		(*C.idx_t)(&centroid_ids[0]))
 	if c != 0 {
 		return nil, nil, getLastError()
 	}
@@ -283,7 +306,8 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	}
 	defer includeSelector.Delete()
 
-	searchParams, err := NewSearchParams(idx, params, includeSelector.sel, 0)
+	searchParams, err := NewSearchParams(idx, params, includeSelector.sel,
+		json.RawMessage{})
 	if err != nil {
 		return nil, nil, err
 	}
