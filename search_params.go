@@ -49,9 +49,8 @@ func (s *searchParamsIVF) Validate() error {
 	return nil
 }
 
-func GetNProbeFromSearchParams(params *SearchParams) int32 {
-	nprobe := C.faiss_SearchParametersIVF_nprobe(params.sp)
-	return int32(nprobe)
+func getNProbeFromSearchParams(params *SearchParams) int32 {
+	return int32(C.faiss_SearchParametersIVF_nprobe(params.sp))
 }
 
 // Always return a valid SearchParams object,
