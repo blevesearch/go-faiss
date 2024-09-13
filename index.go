@@ -183,12 +183,7 @@ func (idx *faissIndex) SearchSpecifiedClusters(include, eligibleCentroidIDs []in
 		Nvecs: len(include),
 	}
 
-	tempParamsBytes, err := json.Marshal(tempParams)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	searchParams, err := NewSearchParams(idx, params, includeSelector.sel, tempParamsBytes)
+	searchParams, err := NewIVFSearchParams(idx, params, includeSelector.sel, tempParams)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -261,18 +256,19 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64,
 		defer excludeSelector.Delete()
 	}
 
-	tempParamsBytes := make([]byte, 0)
+	var searchParams *SearchParams
 	// Applies only to IVF indexes.
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
 		tempParams := tempSearchParamsIVF{}
 		tempParams.Nvecs = int(idx.Ntotal()) - len(exclude)
-		tempParamsBytes, err = json.Marshal(tempParams)
+		searchParams, err = NewIVFSearchParams(idx, params, includeSelector.sel,
+			tempParams)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	searchParams, err := NewSearchParams(idx, params, selector, tempParamsBytes)
+	searchParams, err = NewSearchParams(idx, params, selector)
 	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
@@ -293,7 +289,9 @@ func (idx *faissIndex) GetCentroidDistances(x []float32, centroidIDs []int64) (
 	centroid_ids := make([]int64, len(centroidIDs))
 	centroid_distances := make([]float32, len(centroidIDs))
 
-	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (*C.float)(&x[0]),
+	n := len(x) / idx.D()
+
+	c := C.faiss_Search_closest_eligible_centroids(idx.idx, n, (*C.float)(&x[0]),
 		(C.int)(len(centroidIDs)), (*C.float)(&centroid_distances[0]),
 		(*C.idx_t)(&centroid_ids[0]))
 	if c != 0 {
@@ -312,8 +310,7 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	}
 	defer includeSelector.Delete()
 
-	searchParams, err := NewSearchParams(idx, params, includeSelector.sel,
-		json.RawMessage{})
+	searchParams, err := NewSearchParams(idx, params, includeSelector.sel)
 	if err != nil {
 		return nil, nil, err
 	}
