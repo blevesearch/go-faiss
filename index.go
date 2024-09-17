@@ -46,11 +46,11 @@ type Index interface {
 
 	// Applicable only to IVF indexes: Return a map of centroid ID --> []vector IDs
 	// for the cluster.
-	GetClusterAssignment() (ids map[int64][]int64, err error)
+	ObtainClusterToVecIDsFromIVFIndex() (ids map[int64][]int64, err error)
 
-	// Applicable only to IVF indexes: Returns the centroid IDs closest to the
-	// query 'x' and their distance from 'x'
-	GetCentroidDistances(x []float32, centroidIDs []int64) (
+	// Applicable only to IVF indexes: Returns the centroid IDs in decreasing order
+	// of proximity to query 'x' and their distance from 'x'
+	ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 		[]int64, []float32, error)
 
 	// Search queries the index with the vectors in x.
@@ -65,7 +65,7 @@ type Index interface {
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
-	SearchSpecifiedClusters(include, eligibleCentroidIDs []int64, minEligibleCentroids int,
+	SearchClusters(include, eligibleCentroidIDs []int64, minEligibleCentroids int,
 		k int64, x, centroidDis []float32, params json.RawMessage) ([]float32, []int64, error)
 
 	Reconstruct(key int64) ([]float32, error)
@@ -139,8 +139,7 @@ func (idx *faissIndex) Add(x []float32) error {
 	return nil
 }
 
-func (idx *faissIndex) GetClusterAssignment() (map[int64][]int64, error) {
-
+func (idx *faissIndex) ObtainClusterToVecIDsFromIVFIndex() (map[int64][]int64, error) {
 	clusterVectorIDMap := make(map[int64][]int64)
 
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
@@ -159,7 +158,7 @@ func (idx *faissIndex) GetClusterAssignment() (map[int64][]int64, error) {
 	return clusterVectorIDMap, nil
 }
 
-func (idx *faissIndex) SearchSpecifiedClusters(include, eligibleCentroidIDs []int64,
+func (idx *faissIndex) SearchClusters(include, eligibleCentroidIDs []int64,
 	minEligibleCentroids int, k int64, x, centroidDis []float32,
 	params json.RawMessage) ([]float32, []int64, error) {
 	// Applies only to IVF indexes.
@@ -173,7 +172,7 @@ func (idx *faissIndex) SearchSpecifiedClusters(include, eligibleCentroidIDs []in
 	}
 	defer includeSelector.Delete()
 
-	tempParams := tempSearchParamsIVF{
+	tempParams := defaultSearchParamsIVF{
 		Nlist: len(eligibleCentroidIDs),
 		// Have to override nprobe so that more clusters will be searched for this
 		// query, if required.
@@ -259,9 +258,9 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64,
 	var searchParams *SearchParams
 	// Applies only to IVF indexes.
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
-		tempParams := tempSearchParamsIVF{}
+		tempParams := defaultSearchParamsIVF{}
 		tempParams.Nvecs = int(idx.Ntotal()) - len(exclude)
-		searchParams, err = NewIVFSearchParams(idx, params, includeSelector.sel,
+		searchParams, err = NewIVFSearchParams(idx, params, selector,
 			tempParams)
 		if err != nil {
 			return nil, nil, err
@@ -278,7 +277,7 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64,
 	return
 }
 
-func (idx *faissIndex) GetCentroidDistances(x []float32, centroidIDs []int64) (
+func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 	[]int64, []float32, error) {
 	includeSelector2, err := NewIDSelectorBatch(centroidIDs)
 	if err != nil {
@@ -291,7 +290,7 @@ func (idx *faissIndex) GetCentroidDistances(x []float32, centroidIDs []int64) (
 
 	n := len(x) / idx.D()
 
-	c := C.faiss_Search_closest_eligible_centroids(idx.idx, n, (*C.float)(&x[0]),
+	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (C.int)(n), (*C.float)(&x[0]),
 		(C.int)(len(centroidIDs)), (*C.float)(&centroid_distances[0]),
 		(*C.idx_t)(&centroid_ids[0]))
 	if c != 0 {
