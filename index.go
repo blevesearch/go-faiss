@@ -201,7 +201,7 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(include, eligibleCentroidIDs [
 		Nvecs: len(include),
 	}
 
-	searchParams, err := NewIVFSearchParams(idx, params, includeSelector.sel, tempParams)
+	searchParams, err := NewSearchParamsIVF(idx, params, includeSelector.sel, tempParams)
 	if err != nil {
 		return nil, nil, err
 	}
