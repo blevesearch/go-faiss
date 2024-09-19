@@ -19,13 +19,13 @@ func (s *IDSelector) Delete() {
 	C.faiss_IDSelector_free(s.sel)
 }
 
-type IDSelectorBatch struct {
+type IDSelectorNot struct {
 	sel      *C.FaissIDSelector
 	batchSel *C.FaissIDSelector
 }
 
 // Delete frees the memory associated with s.
-func (s *IDSelectorBatch) Delete() {
+func (s *IDSelectorNot) Delete() {
 	if s == nil {
 		return
 	}
@@ -61,9 +61,9 @@ func NewIDSelectorBatch(indices []int64) (*IDSelector, error) {
 	return &IDSelector{(*C.FaissIDSelector)(sel)}, nil
 }
 
-// NewIDSelectorNot creates a new Not selector, wrapped arround a
+// NewIDSelectorNot creates a new Not selector, wrapped around a
 // batch selector, with the IDs in 'exclude'.
-func NewIDSelectorNot(exclude []int64) (*IDSelectorBatch, error) {
+func NewIDSelectorNot(exclude []int64) (*IDSelectorNot, error) {
 	batchSelector, err := NewIDSelectorBatch(exclude)
 	if err != nil {
 		return nil, err
@@ -77,5 +77,5 @@ func NewIDSelectorNot(exclude []int64) (*IDSelectorBatch, error) {
 		batchSelector.Delete()
 		return nil, getLastError()
 	}
-	return &IDSelectorBatch{sel: (*C.FaissIDSelector)(sel), batchSel: batchSelector.sel}, nil
+	return &IDSelectorNot{sel: (*C.FaissIDSelector)(sel), batchSel: batchSelector.sel}, nil
 }
