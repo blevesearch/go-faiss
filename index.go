@@ -65,7 +65,7 @@ type Index interface {
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
-	SearchClusters(include, eligibleCentroidIDs []int64, minEligibleCentroids int,
+	SearchClustersFromIVFIndex(include, eligibleCentroidIDs []int64, minEligibleCentroids int,
 		k int64, x, centroidDis []float32, params json.RawMessage) ([]float32, []int64, error)
 
 	Reconstruct(key int64) ([]float32, error)
@@ -158,7 +158,7 @@ func (idx *faissIndex) ObtainClusterToVecIDsFromIVFIndex() (map[int64][]int64, e
 	return clusterVectorIDMap, nil
 }
 
-func (idx *faissIndex) SearchClusters(include, eligibleCentroidIDs []int64,
+func (idx *faissIndex) SearchClustersFromIVFIndex(include, eligibleCentroidIDs []int64,
 	minEligibleCentroids int, k int64, x, centroidDis []float32,
 	params json.RawMessage) ([]float32, []int64, error) {
 	// Applies only to IVF indexes.
