@@ -161,20 +161,27 @@ func (idx *faissIndex) ObtainClusterToVecIDsFromIVFIndex() (map[int64][]int64, e
 
 func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 	[]int64, []float32, error) {
-	includeSelector2, err := NewIDSelectorBatch(centroidIDs)
+	// Selector to include only the centroids whose IDs are part of 'centroidIDs'.
+	includeSelector, err := NewIDSelectorBatch(centroidIDs)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer includeSelector2.Delete()
+	defer includeSelector.Delete()
 
+	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.sel)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Populate these with the centroids and their distances.
 	centroids := make([]int64, len(centroidIDs))
 	centroidDistances := make([]float32, len(centroidIDs))
 
 	n := len(x) / idx.D()
 
-	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (C.int)(n), (*C.float)(&x[0]),
-		(C.int)(len(centroidIDs)), (*C.float)(&centroidDistances[0]),
-		(*C.idx_t)(&centroids[0]))
+	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (C.int)(n),
+		(*C.float)(&x[0]), (C.int)(len(centroidIDs)),
+		(*C.float)(&centroidDistances[0]), (*C.idx_t)(&centroids[0]), params.sp)
 	if c != 0 {
 		return nil, nil, getLastError()
 	}
