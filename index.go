@@ -170,6 +170,9 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	defer includeSelector.Delete()
 
 	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.GetFaissSelector())
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Populate these with the centroids and their distances.
 	centroids := make([]int64, len(centroidIDs))
