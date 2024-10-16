@@ -65,8 +65,9 @@ type Index interface {
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
-	SearchClustersFromIVFIndex(include, eligibleCentroidIDs []int64, minEligibleCentroids int,
-		k int64, x, centroidDis []float32, params json.RawMessage) ([]float32, []int64, error)
+	SearchClustersFromIVFIndex(selector Selector, nvecs int, eligibleCentroidIDs []int64,
+		minEligibleCentroids int, k int64, x, centroidDis []float32,
+		params json.RawMessage) ([]float32, []int64, error)
 
 	Reconstruct(key int64) ([]float32, error)
 
@@ -168,10 +169,7 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	}
 	defer includeSelector.Delete()
 
-	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.sel)
-	if err != nil {
-		return nil, nil, err
-	}
+	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.GetFaissSelector())
 
 	// Populate these with the centroids and their distances.
 	centroids := make([]int64, len(centroidIDs))
@@ -189,26 +187,21 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	return centroids, centroidDistances, nil
 }
 
-func (idx *faissIndex) SearchClustersFromIVFIndex(include, eligibleCentroidIDs []int64,
-	minEligibleCentroids int, k int64, x, centroidDis []float32,
-	params json.RawMessage) ([]float32, []int64, error) {
-	includeSelector, err := NewIDSelectorBatch(include)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer includeSelector.Delete()
+func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
+	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x,
+	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
+	defer selector.Delete()
 
 	tempParams := defaultSearchParamsIVF{
 		Nlist: len(eligibleCentroidIDs),
 		// Have to override nprobe so that more clusters will be searched for this
 		// query, if required.
 		Nprobe: minEligibleCentroids,
-		// Only consider the vectors eligible to be searched, based on deletions/
-		// filter queries.
-		Nvecs: len(include),
+		Nvecs:  nvecs,
 	}
 
-	searchParams, err := NewSearchParamsIVF(idx, params, includeSelector.sel, tempParams)
+	searchParams, err := NewSearchParamsIVF(idx, params, selector.GetFaissSelector(),
+		tempParams)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -285,7 +278,7 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 		if err != nil {
 			return nil, nil, err
 		}
-		selector = excludeSelector.sel
+		selector = excludeSelector.GetFaissSelector()
 		defer excludeSelector.Delete()
 	}
 
@@ -309,7 +302,7 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	}
 	defer includeSelector.Delete()
 
-	searchParams, err := NewSearchParams(idx, params, includeSelector.sel)
+	searchParams, err := NewSearchParams(idx, params, includeSelector.GetFaissSelector())
 	if err != nil {
 		return nil, nil, err
 	}

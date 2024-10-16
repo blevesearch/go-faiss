@@ -5,6 +5,11 @@ package faiss
 */
 import "C"
 
+type Selector interface {
+	GetFaissSelector() *C.FaissIDSelector
+	Delete()
+}
+
 // IDSelector represents a set of IDs to remove.
 type IDSelector struct {
 	sel *C.FaissIDSelector
@@ -17,6 +22,10 @@ func (s *IDSelector) Delete() {
 	}
 
 	C.faiss_IDSelector_free(s.sel)
+}
+
+func (s *IDSelector) GetFaissSelector() *C.FaissIDSelector {
+	return s.sel
 }
 
 type IDSelectorNot struct {
@@ -38,8 +47,12 @@ func (s *IDSelectorNot) Delete() {
 	}
 }
 
+func (s *IDSelectorNot) GetFaissSelector() *C.FaissIDSelector {
+	return s.sel
+}
+
 // NewIDSelectorRange creates a selector that removes IDs on [imin, imax).
-func NewIDSelectorRange(imin, imax int64) (*IDSelector, error) {
+func NewIDSelectorRange(imin, imax int64) (Selector, error) {
 	var sel *C.FaissIDSelectorRange
 	c := C.faiss_IDSelectorRange_new(&sel, C.idx_t(imin), C.idx_t(imax))
 	if c != 0 {
@@ -49,7 +62,7 @@ func NewIDSelectorRange(imin, imax int64) (*IDSelector, error) {
 }
 
 // NewIDSelectorBatch creates a new batch selector.
-func NewIDSelectorBatch(indices []int64) (*IDSelector, error) {
+func NewIDSelectorBatch(indices []int64) (Selector, error) {
 	var sel *C.FaissIDSelectorBatch
 	if c := C.faiss_IDSelectorBatch_new(
 		&sel,
@@ -63,7 +76,7 @@ func NewIDSelectorBatch(indices []int64) (*IDSelector, error) {
 
 // NewIDSelectorNot creates a new Not selector, wrapped around a
 // batch selector, with the IDs in 'exclude'.
-func NewIDSelectorNot(exclude []int64) (*IDSelectorNot, error) {
+func NewIDSelectorNot(exclude []int64) (Selector, error) {
 	batchSelector, err := NewIDSelectorBatch(exclude)
 	if err != nil {
 		return nil, err
@@ -72,10 +85,11 @@ func NewIDSelectorNot(exclude []int64) (*IDSelectorNot, error) {
 	var sel *C.FaissIDSelectorNot
 	if c := C.faiss_IDSelectorNot_new(
 		&sel,
-		batchSelector.sel,
+		batchSelector.GetFaissSelector(),
 	); c != 0 {
 		batchSelector.Delete()
 		return nil, getLastError()
 	}
-	return &IDSelectorNot{sel: (*C.FaissIDSelector)(sel), batchSel: batchSelector.sel}, nil
+	return &IDSelectorNot{sel: (*C.FaissIDSelector)(sel),
+		batchSel: batchSelector.GetFaissSelector()}, nil
 }
