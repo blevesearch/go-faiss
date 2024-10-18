@@ -6,7 +6,7 @@ package faiss
 import "C"
 
 type Selector interface {
-	GetFaissSelector() *C.FaissIDSelector
+	Get() *C.FaissIDSelector
 	Delete()
 }
 
@@ -24,7 +24,7 @@ func (s *IDSelector) Delete() {
 	C.faiss_IDSelector_free(s.sel)
 }
 
-func (s *IDSelector) GetFaissSelector() *C.FaissIDSelector {
+func (s *IDSelector) Get() *C.FaissIDSelector {
 	return s.sel
 }
 
@@ -47,7 +47,7 @@ func (s *IDSelectorNot) Delete() {
 	}
 }
 
-func (s *IDSelectorNot) GetFaissSelector() *C.FaissIDSelector {
+func (s *IDSelectorNot) Get() *C.FaissIDSelector {
 	return s.sel
 }
 
@@ -85,11 +85,11 @@ func NewIDSelectorNot(exclude []int64) (Selector, error) {
 	var sel *C.FaissIDSelectorNot
 	if c := C.faiss_IDSelectorNot_new(
 		&sel,
-		batchSelector.GetFaissSelector(),
+		batchSelector.Get(),
 	); c != 0 {
 		batchSelector.Delete()
 		return nil, getLastError()
 	}
 	return &IDSelectorNot{sel: (*C.FaissIDSelector)(sel),
-		batchSel: batchSelector.GetFaissSelector()}, nil
+		batchSel: batchSelector.Get()}, nil
 }
