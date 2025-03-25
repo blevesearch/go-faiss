@@ -44,9 +44,19 @@ type Index interface {
 	// AddWithIDs is like Add, but stores xids instead of sequential IDs.
 	AddWithIDs(x []float32, xids []int64) error
 
-	// Applicable only to IVF indexes: Return a map of centroid ID --> []vector IDs
-	// for the cluster.
-	ObtainClusterToVecIDsFromIVFIndex() (ids map[int64][]int64, err error)
+	// Returns true if the index is an IVF index.
+	IsIVFIndex() bool
+
+	// CountVectorsPerCluster returns a map where the keys are cluster IDs
+	// and the values represent the count of input vectors that belong to each cluster.
+	// This method only considers the given vecIDs and does not account for all
+	// vectors in the index.
+	// Example:
+	// If vecIDs = [1, 2, 3, 4, 5], and:
+	// - Vectors 1 and 2 belong to cluster 1
+	// - Vectors 3, 4, and 5 belong to cluster 2
+	// The output will be: map[1:2, 2:3]
+	CountVectorsPerCluster(vecIDs []int64) (map[int64]int64, error)
 
 	// Applicable only to IVF indexes: Returns the centroid IDs in decreasing order
 	// of proximity to query 'x' and their distance from 'x'
@@ -140,24 +150,23 @@ func (idx *faissIndex) Add(x []float32) error {
 	return nil
 }
 
-func (idx *faissIndex) ObtainClusterToVecIDsFromIVFIndex() (map[int64][]int64, error) {
-	// This type assertion is required to determine whether to invoke
-	// ObtainClustersWithDistancesFromIVFIndex, SearchClustersFromIVFIndex or not.
+func (idx *faissIndex) CountVectorsPerCluster(vecIDs []int64) (map[int64]int64, error) {
+	if !idx.IsIVFIndex() {
+		return nil, fmt.Errorf("index is not an IVF index")
+	}
+	rv := make(map[int64]int64, len(vecIDs))
+	for _, vecID := range vecIDs {
+		clusterID := C.faiss_get_list_for_key(idx.idx, (C.idx_t)(vecID))
+		rv[int64(clusterID)] += 1
+	}
+	return rv, nil
+}
+
+func (idx *faissIndex) IsIVFIndex() bool {
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx == nil {
-		return nil, nil
+		return false
 	}
-
-	clusterVectorIDMap := make(map[int64][]int64)
-
-	nlist := C.faiss_IndexIVF_nlist(idx.idx)
-	for i := 0; i < int(nlist); i++ {
-		list_size := C.faiss_IndexIVF_get_list_size(idx.idx, C.size_t(i))
-		invlist := make([]int64, list_size)
-		C.faiss_IndexIVF_invlists_get_ids(idx.idx, C.size_t(i), (*C.idx_t)(&invlist[0]))
-		clusterVectorIDMap[int64(i)] = invlist
-	}
-
-	return clusterVectorIDMap, nil
+	return true
 }
 
 func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
@@ -195,7 +204,7 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
 	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
 	defer selector.Delete()
 
-	tempParams := defaultSearchParamsIVF{
+	tempParams := &defaultSearchParamsIVF{
 		Nlist: len(eligibleCentroidIDs),
 		// Have to override nprobe so that more clusters will be searched for this
 		// query, if required.

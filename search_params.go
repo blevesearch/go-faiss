@@ -56,7 +56,7 @@ func getNProbeFromSearchParams(params *SearchParams) int32 {
 }
 
 func NewSearchParamsIVF(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
-	defaultParams defaultSearchParamsIVF) (*SearchParams, error) {
+	defaultParams *defaultSearchParamsIVF) (*SearchParams, error) {
 	rv := &SearchParams{}
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
 		rv.sp = C.faiss_SearchParametersIVF_cast(rv.sp)
