@@ -47,8 +47,9 @@ type Index interface {
 	// Returns true if the index is an IVF index.
 	IsIVFIndex() bool
 
-	// CountVectorsPerCluster returns a map where the keys are cluster IDs
-	// and the values represent the count of input vectors that belong to each cluster.
+	// Applicable only to IVF indexes: Returns a map where the keys
+	// are cluster IDs and the values represent the count of input vectors that belong
+	// to each cluster.
 	// This method only considers the given vecIDs and does not account for all
 	// vectors in the index.
 	// Example:
@@ -56,7 +57,7 @@ type Index interface {
 	// - Vectors 1 and 2 belong to cluster 1
 	// - Vectors 3, 4, and 5 belong to cluster 2
 	// The output will be: map[1:2, 2:3]
-	CountVectorsPerCluster(vecIDs []int64) (map[int64]int64, error)
+	ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error)
 
 	// Applicable only to IVF indexes: Returns the centroid IDs in decreasing order
 	// of proximity to query 'x' and their distance from 'x'
@@ -150,7 +151,7 @@ func (idx *faissIndex) Add(x []float32) error {
 	return nil
 }
 
-func (idx *faissIndex) CountVectorsPerCluster(vecIDs []int64) (map[int64]int64, error) {
+func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error) {
 	if !idx.IsIVFIndex() {
 		return nil, fmt.Errorf("index is not an IVF index")
 	}
