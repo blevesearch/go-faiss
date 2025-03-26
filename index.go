@@ -178,7 +178,8 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	}
 	defer includeSelector.Delete()
 
-	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.Get())
+	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.Get(), nil)
+	defer params.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -202,7 +203,6 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
 	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x,
 	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
-	defer selector.Delete()
 
 	tempParams := &defaultSearchParamsIVF{
 		Nlist: len(eligibleCentroidIDs),
@@ -212,8 +212,8 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
 		Nvecs:  nvecs,
 	}
 
-	searchParams, err := NewSearchParamsIVF(idx, params, selector.Get(),
-		tempParams)
+	searchParams, err := NewSearchParams(idx, params, selector.Get(), tempParams)
+	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -294,7 +294,7 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 		defer excludeSelector.Delete()
 	}
 
-	searchParams, err := NewSearchParams(idx, params, selector)
+	searchParams, err := NewSearchParams(idx, params, selector, nil)
 	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
@@ -314,11 +314,11 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	}
 	defer includeSelector.Delete()
 
-	searchParams, err := NewSearchParams(idx, params, includeSelector.Get())
+	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
+	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
-	defer searchParams.Delete()
 
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
 	return
