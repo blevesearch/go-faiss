@@ -158,7 +158,7 @@ func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (ma
 	rv := make(map[int64]int64, len(vecIDs))
 	for _, vecID := range vecIDs {
 		clusterID := C.faiss_get_list_for_key(idx.idx, (C.idx_t)(vecID))
-		rv[int64(clusterID)] += 1
+		rv[int64(clusterID)]++
 	}
 	return rv, nil
 }
