@@ -34,7 +34,6 @@ type searchParamsIVF struct {
 type defaultSearchParamsIVF struct {
 	Nprobe int `json:"ivf_nprobe,omitempty"`
 	Nlist  int `json:"ivf_nlist,omitempty"`
-	Nvecs  int `json:"ivf_nvecs,omitempty"`
 }
 
 func (s *searchParamsIVF) Validate() error {
@@ -64,7 +63,6 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 	if c := C.faiss_SearchParameters_new(&rv.sp, sel); c != 0 {
 		return rv, fmt.Errorf("failed to create faiss search params")
 	}
-
 	// check if the index is IVF and set the search params
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
 		rv.sp = C.faiss_SearchParametersIVF_cast(rv.sp)
@@ -75,7 +73,6 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		nlist = int(C.faiss_IndexIVF_nlist(ivfIdx))
 		nprobe = int(C.faiss_IndexIVF_nprobe(ivfIdx))
 		nvecs = int(C.faiss_Index_ntotal(idx.cPtr()))
-
 		if defaultParams != nil {
 			if defaultParams.Nlist > 0 {
 				nlist = defaultParams.Nlist
@@ -83,11 +80,7 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 			if defaultParams.Nprobe > 0 {
 				nprobe = defaultParams.Nprobe
 			}
-			if defaultParams.Nvecs > 0 {
-				nvecs = defaultParams.Nvecs
-			}
 		}
-
 		var ivfParams searchParamsIVF
 		if len(params) > 0 {
 			if err := json.Unmarshal(params, &ivfParams); err != nil {
@@ -98,14 +91,12 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 				return rv, err
 			}
 		}
-
 		if ivfParams.NprobePct > 0 {
 			nprobe = max(int(float32(nlist)*(ivfParams.NprobePct/100)), 1)
 		}
 		if ivfParams.MaxCodesPct > 0 {
 			maxCodes = int(float32(nvecs) * (ivfParams.MaxCodesPct / 100))
 		} // else, maxCodes will be set to the default value of 0, which means no limit
-
 		if c := C.faiss_SearchParametersIVF_new_with(
 			&rv.sp,
 			sel,
@@ -115,6 +106,5 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 			return rv, fmt.Errorf("failed to create faiss IVF search params")
 		}
 	}
-
 	return rv, nil
 }

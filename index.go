@@ -76,7 +76,7 @@ type Index interface {
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
-	SearchClustersFromIVFIndex(selector Selector, nvecs int, eligibleCentroidIDs []int64,
+	SearchClustersFromIVFIndex(selector Selector, eligibleCentroidIDs []int64,
 		minEligibleCentroids int, k int64, x, centroidDis []float32,
 		params json.RawMessage) ([]float32, []int64, error)
 
@@ -201,7 +201,7 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	return centroids, centroidDistances, nil
 }
 
-func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
+func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x,
 	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
 
@@ -210,7 +210,6 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
 		// Have to override nprobe so that more clusters will be searched for this
 		// query, if required.
 		Nprobe: minEligibleCentroids,
-		Nvecs:  nvecs,
 	}
 
 	searchParams, err := NewSearchParams(idx, params, selector.Get(), tempParams)
