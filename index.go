@@ -155,10 +155,18 @@ func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (ma
 	if !idx.IsIVFIndex() {
 		return nil, fmt.Errorf("index is not an IVF index")
 	}
+	clusterIDs := make([]int64, len(vecIDs))
+	if c := C.faiss_get_lists_for_keys(
+		idx.idx,
+		(*C.idx_t)(unsafe.Pointer(&vecIDs[0])),
+		(C.size_t)(len(vecIDs)),
+		(*C.idx_t)(unsafe.Pointer(&clusterIDs[0])),
+	); c != 0 {
+		return nil, getLastError()
+	}
 	rv := make(map[int64]int64, len(vecIDs))
-	for _, vecID := range vecIDs {
-		clusterID := C.faiss_get_list_for_key(idx.idx, (C.idx_t)(vecID))
-		rv[int64(clusterID)]++
+	for _, v := range clusterIDs {
+		rv[v]++
 	}
 	return rv, nil
 }
@@ -191,9 +199,14 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 
 	n := len(x) / idx.D()
 
-	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (C.int)(n),
-		(*C.float)(&x[0]), (C.int)(len(centroidIDs)),
-		(*C.float)(&centroidDistances[0]), (*C.idx_t)(&centroids[0]), params.sp)
+	c := C.faiss_Search_closest_eligible_centroids(
+		idx.idx,
+		(C.idx_t)(n),
+		(*C.float)(&x[0]),
+		(C.idx_t)(len(centroidIDs)),
+		(*C.float)(&centroidDistances[0]),
+		(*C.idx_t)(&centroids[0]),
+		params.sp)
 	if c != 0 {
 		return nil, nil, getLastError()
 	}
