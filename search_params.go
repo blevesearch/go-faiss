@@ -54,6 +54,9 @@ func getNProbeFromSearchParams(params *SearchParams) int32 {
 	return int32(C.faiss_SearchParametersIVF_nprobe(params.sp))
 }
 
+// Returns a valid SearchParams object,
+// thus caller must clean up the object
+// by invoking Delete() method.
 func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 	defaultParams *defaultSearchParamsIVF) (*SearchParams, error) {
 	rv := &SearchParams{}
