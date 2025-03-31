@@ -188,10 +188,10 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	defer includeSelector.Delete()
 
 	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.Get(), nil)
-	defer params.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer params.Delete()
 
 	// Populate these with the centroids and their distances.
 	centroids := make([]int64, len(centroidIDs))
@@ -226,10 +226,10 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	}
 
 	searchParams, err := NewSearchParams(idx, params, selector.Get(), tempParams)
-	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer searchParams.Delete()
 
 	n := len(x) / idx.D()
 
@@ -308,10 +308,10 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 	}
 
 	searchParams, err := NewSearchParams(idx, params, selector, nil)
-	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer searchParams.Delete()
 
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
 
@@ -328,10 +328,10 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	defer includeSelector.Delete()
 
 	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
-	defer searchParams.Delete()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer searchParams.Delete()
 
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
 	return

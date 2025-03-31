@@ -54,14 +54,11 @@ func getNProbeFromSearchParams(params *SearchParams) int32 {
 	return int32(C.faiss_SearchParametersIVF_nprobe(params.sp))
 }
 
-// Always return a valid SearchParams object,
-// thus caller must clean up the object
-// by invoking Delete() method, even if an error is returned.
 func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 	defaultParams *defaultSearchParamsIVF) (*SearchParams, error) {
 	rv := &SearchParams{}
 	if c := C.faiss_SearchParameters_new(&rv.sp, sel); c != 0 {
-		return rv, fmt.Errorf("failed to create faiss search params")
+		return nil, fmt.Errorf("failed to create faiss search params")
 	}
 	// check if the index is IVF and set the search params
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
@@ -84,11 +81,13 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		var ivfParams searchParamsIVF
 		if len(params) > 0 {
 			if err := json.Unmarshal(params, &ivfParams); err != nil {
-				return rv, fmt.Errorf("failed to unmarshal IVF search params, "+
+				rv.Delete()
+				return nil, fmt.Errorf("failed to unmarshal IVF search params, "+
 					"err:%v", err)
 			}
 			if err := ivfParams.Validate(); err != nil {
-				return rv, err
+				rv.Delete()
+				return nil, err
 			}
 		}
 		if ivfParams.NprobePct > 0 {
@@ -103,7 +102,8 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 			C.size_t(nprobe),
 			C.size_t(maxCodes),
 		); c != 0 {
-			return rv, fmt.Errorf("failed to create faiss IVF search params")
+			rv.Delete()
+			return nil, fmt.Errorf("failed to create faiss IVF search params")
 		}
 	}
 	return rv, nil
