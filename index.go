@@ -317,23 +317,6 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	return distances, labels, nil
 }
 
-func packBits(bits []uint8) []uint8 {
-	n := (len(bits) + 7) / 8
-	result := make([]uint8, n)
-	for i := 0; i < len(bits); i++ {
-		// Determine the index in the result slice
-		byteIndex := i / 8
-		// Determine the bit position in the byte
-		bitPosition := uint(7 - (i % 8))
-		// If the bit is 1, set the corresponding bit in the uint8 value
-		if bits[i] == 1 {
-			result[byteIndex] |= (1 << bitPosition)
-		}
-	}
-
-	return result
-}
-
 func (idx *faissIndex) AddWithIDs(x interface{}, xids []int64) error {
 	floatVec, ok := x.([]float32)
 	if ok {
