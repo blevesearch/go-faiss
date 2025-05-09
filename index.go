@@ -2,13 +2,16 @@ package faiss
 
 /*
 #include <stdlib.h>
+#include <stdint.h>
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
+#include <faiss/c_api/IndexBinary_c.h>
 #include <faiss/c_api/IndexIVF_c_ex.h>
 #include <faiss/c_api/Index_c_ex.h>
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
 #include <faiss/c_api/index_factory_c.h>
 #include <faiss/c_api/MetaIndexes_c.h>
+#include <faiss/c_api/IndexBinary_c.h>
 */
 import "C"
 import (
@@ -36,13 +39,13 @@ type Index interface {
 	MetricType() int
 
 	// Train trains the index on a representative set of vectors.
-	Train(x []float32) error
+	Train(x interface{}) error
 
 	// Add adds vectors to the index.
-	Add(x []float32) error
+	Add(x interface{}) error
 
 	// AddWithIDs is like Add, but stores xids instead of sequential IDs.
-	AddWithIDs(x []float32, xids []int64) error
+	AddWithIDs(x interface{}, xids []int64) error
 
 	// Returns true if the index is an IVF index.
 	IsIVFIndex() bool
@@ -75,6 +78,12 @@ type Index interface {
 	SearchWithIDs(x []float32, k int64, include []int64, params json.RawMessage) (distances []float32,
 		labels []int64, err error)
 
+	SearchBinaryWithIDs(x []uint8, k int64, params json.RawMessage) (distances []int32,
+		labels []int64, err error)
+
+	SearchBinary(x []uint8, k int64) (distances []int32,
+		labels []int64, err error)
+
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
 	SearchClustersFromIVFIndex(selector Selector, eligibleCentroidIDs []int64,
 		minEligibleCentroids int, k int64, x, centroidDis []float32,
@@ -104,14 +113,28 @@ type Index interface {
 	Size() uint64
 
 	cPtr() *C.FaissIndex
+
+	cPtrBinary() *C.FaissIndexBinary
+
+	IVFDistCompute(queryData []float32, ids []int64, k int, distances []float32)
 }
 
 type faissIndex struct {
-	idx *C.FaissIndex
+	idx       *C.FaissIndex
+	idxBinary *C.FaissIndexBinary
 }
 
 func (idx *faissIndex) cPtr() *C.FaissIndex {
 	return idx.idx
+}
+
+func (idx *faissIndex) IVFDistCompute(queryData []float32, ids []int64, k int, distances []float32) {
+	C.faiss_IndexIVF_dist_compute(idx.idx, (*C.float)(&queryData[0]),
+		(*C.idx_t)(&ids[0]), (C.size_t)(k), (*C.float)(&distances[0]))
+}
+
+func (idx *faissIndex) cPtrBinary() *C.FaissIndexBinary {
+	return idx.idxBinary
 }
 
 func (idx *faissIndex) Size() uint64 {
@@ -120,7 +143,10 @@ func (idx *faissIndex) Size() uint64 {
 }
 
 func (idx *faissIndex) D() int {
-	return int(C.faiss_Index_d(idx.idx))
+	if idx.idx != nil {
+		return int(C.faiss_Index_d(idx.idx))
+	}
+	return int(C.faiss_IndexBinary_d(idx.idxBinary))
 }
 
 func (idx *faissIndex) IsTrained() bool {
@@ -128,6 +154,9 @@ func (idx *faissIndex) IsTrained() bool {
 }
 
 func (idx *faissIndex) Ntotal() int64 {
+	if idx.idxBinary != nil {
+		return int64(C.faiss_IndexBinary_ntotal(idx.idxBinary))
+	}
 	return int64(C.faiss_Index_ntotal(idx.idx))
 }
 
@@ -135,19 +164,50 @@ func (idx *faissIndex) MetricType() int {
 	return int(C.faiss_Index_metric_type(idx.idx))
 }
 
-func (idx *faissIndex) Train(x []float32) error {
-	n := len(x) / idx.D()
-	if c := C.faiss_Index_train(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		return getLastError()
+func (idx *faissIndex) Train(x interface{}) error {
+	floatVec, ok := x.([]float32)
+	if ok {
+		n := len(floatVec) / idx.D()
+		if c := C.faiss_Index_train(idx.idx, C.idx_t(n), (*C.float)(&floatVec[0])); c != 0 {
+			return getLastError()
+		}
+	} else {
+		c, ok := x.([]uint8)
+		if ok {
+			n := (len(c) * 8) / idx.D()
+			if c := C.faiss_IndexBinary_train(idx.idxBinary, C.idx_t(n), (*C.uint8_t)(&c[0])); c != 0 {
+				return getLastError()
+			}
+		}
 	}
 	return nil
 }
 
-func (idx *faissIndex) Add(x []float32) error {
-	n := len(x) / idx.D()
-	if c := C.faiss_Index_add(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		return getLastError()
+func (idx *faissIndex) Add(x interface{}) error {
+	floatVec, ok := x.([]float32)
+	if ok {
+		n := len(floatVec) / idx.D()
+		if c := C.faiss_Index_add(
+			idx.idx,
+			C.idx_t(n),
+			(*C.float)(&floatVec[0]),
+		); c != 0 {
+			return getLastError()
+		}
+	} else {
+		c, ok := x.([]uint8)
+		if ok {
+			n := (len(c) * 8) / idx.D()
+			if c := C.faiss_IndexBinary_add(
+				idx.idxBinary,
+				C.idx_t(n),
+				(*C.uint8_t)(&c[0]),
+			); c != 0 {
+				return getLastError()
+			}
+		}
 	}
+
 	return nil
 }
 
@@ -257,16 +317,50 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	return distances, labels, nil
 }
 
-func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
-	n := len(x) / idx.D()
-	if c := C.faiss_Index_add_with_ids(
-		idx.idx,
-		C.idx_t(n),
-		(*C.float)(&x[0]),
-		(*C.idx_t)(&xids[0]),
-	); c != 0 {
-		return getLastError()
+func packBits(bits []uint8) []uint8 {
+	n := (len(bits) + 7) / 8
+	result := make([]uint8, n)
+	for i := 0; i < len(bits); i++ {
+		// Determine the index in the result slice
+		byteIndex := i / 8
+		// Determine the bit position in the byte
+		bitPosition := uint(7 - (i % 8))
+		// If the bit is 1, set the corresponding bit in the uint8 value
+		if bits[i] == 1 {
+			result[byteIndex] |= (1 << bitPosition)
+		}
 	}
+
+	return result
+}
+
+func (idx *faissIndex) AddWithIDs(x interface{}, xids []int64) error {
+	floatVec, ok := x.([]float32)
+	if ok {
+		n := len(floatVec) / idx.D()
+		if c := C.faiss_Index_add_with_ids(
+			idx.idx,
+			C.idx_t(n),
+			(*C.float)(&floatVec[0]),
+			(*C.idx_t)(&xids[0]),
+		); c != 0 {
+			return getLastError()
+		}
+	} else {
+		c, ok := x.([]uint8)
+		if ok {
+			n := (len(c) * 8) / idx.D()
+			if c := C.faiss_IndexBinary_add_with_ids(
+				idx.idxBinary,
+				C.idx_t(n),
+				(*C.uint8_t)(&c[0]),
+				(*C.idx_t)(&xids[0]),
+			); c != 0 {
+				return getLastError()
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -316,6 +410,51 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
 
 	return
+}
+
+func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
+	params json.RawMessage) (distances []int32, labels []int64, err error,
+) {
+	d := idx.D()
+	nq := (len(x) * 8) / d
+
+	distances = make([]int32, int64(nq)*k)
+	labels = make([]int64, int64(nq)*k)
+
+	if c := C.faiss_IndexBinary_search(
+		idx.idxBinary,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return distances, labels, nil
+}
+
+func (idx *faissIndex) SearchBinary(x []uint8, k int64) (distances []int32, labels []int64, err error,
+) {
+	d := idx.D()
+	nq := (len(x) * 8) / d
+
+	distances = make([]int32, int64(nq)*k)
+	labels = make([]int64, int64(nq)*k)
+
+	if c := C.faiss_IndexBinary_search(
+		idx.idxBinary,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return distances, labels, nil
 }
 
 func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
@@ -426,6 +565,7 @@ func (idx *faissIndex) RemoveIDs(sel *IDSelector) (int, error) {
 
 func (idx *faissIndex) Close() {
 	C.faiss_Index_free(idx.idx)
+	C.faiss_IndexBinary_free(idx.idxBinary)
 }
 
 func (idx *faissIndex) searchWithParams(x []float32, k int64, searchParams *C.FaissSearchParameters) (
@@ -501,6 +641,17 @@ func IndexFactory(d int, description string, metric int) (*IndexImpl, error) {
 	defer C.free(unsafe.Pointer(cdesc))
 	var idx faissIndex
 	c := C.faiss_index_factory(&idx.idx, C.int(d), cdesc, C.FaissMetricType(metric))
+	if c != 0 {
+		return nil, getLastError()
+	}
+	return &IndexImpl{&idx}, nil
+}
+
+func IndexBinaryFactory(d int, description string, metric int) (*IndexImpl, error) {
+	cdesc := C.CString(description)
+	defer C.free(unsafe.Pointer(cdesc))
+	var idx faissIndex
+	c := C.faiss_index_binary_factory(&idx.idxBinary, C.int(d), cdesc)
 	if c != 0 {
 		return nil, getLastError()
 	}

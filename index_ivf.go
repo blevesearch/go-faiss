@@ -5,6 +5,7 @@ package faiss
 #include <faiss/c_api/MetaIndexes_c.h>
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
+#include <faiss/c_api/IndexBinary_c.h>
 #include <faiss/c_api/IndexIVF_c_ex.h>
 */
 import "C"
@@ -13,18 +14,34 @@ import (
 )
 
 func (idx *IndexImpl) SetDirectMap(mapType int) (err error) {
-
+	// Try to get either regular or binary IVF pointer
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return fmt.Errorf("index is not of ivf type")
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary())
+
+	// If we have a regular IVF index
+	if ivfPtr != nil {
+		if c := C.faiss_IndexIVF_set_direct_map(
+			ivfPtr,
+			C.int(mapType),
+		); c != 0 {
+			err = getLastError()
+		}
+		return err
 	}
-	if c := C.faiss_IndexIVF_set_direct_map(
-		ivfPtr,
-		C.int(mapType),
-	); c != 0 {
-		err = getLastError()
+
+	// If we have a binary IVF index
+	if ivfPtrBinary != nil {
+		if c := C.faiss_IndexBinaryIVF_set_direct_map(
+			ivfPtrBinary,
+			C.int(mapType),
+		); c != 0 {
+			err = getLastError()
+		}
+		return err
 	}
-	return err
+
+	// Get index type for better error message
+	return fmt.Errorf("index is not of ivf type 2")
 }
 
 func (idx *IndexImpl) GetSubIndex() (*IndexImpl, error) {
@@ -39,23 +56,38 @@ func (idx *IndexImpl) GetSubIndex() (*IndexImpl, error) {
 		return nil, fmt.Errorf("couldn't retrieve the sub index")
 	}
 
-	return &IndexImpl{&faissIndex{subIdx}}, nil
+	return &IndexImpl{&faissIndex{idx: subIdx}}, nil
 }
 
-// pass nprobe to be set as index time option for IVF indexes only.
+// pass nprobe to be set as index time option for IVF/BIVF indexes only.
 // varying nprobe impacts recall but with an increase in latency.
-func (idx *IndexImpl) SetNProbe(nprobe int32) {
+func (idx *IndexImpl) SetNProbe(nprobe int32) error {
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return
+	if ivfPtr != nil {
+		C.faiss_IndexIVF_set_nprobe(ivfPtr, C.size_t(nprobe))
+		return nil
 	}
-	C.faiss_IndexIVF_set_nprobe(ivfPtr, C.size_t(nprobe))
+
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary())
+	if ivfPtrBinary != nil {
+		C.faiss_IndexBinaryIVF_set_nprobe(ivfPtrBinary, C.size_t(nprobe))
+		return nil
+	}
+
+	// Get index type for better error message
+	return fmt.Errorf("index is not of ivf type 3")
 }
 
 func (idx *IndexImpl) GetNProbe() int32 {
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return 0
+	if ivfPtr != nil {
+		return int32(C.faiss_IndexIVF_nprobe(ivfPtr))
 	}
-	return int32(C.faiss_IndexIVF_nprobe(ivfPtr))
+
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary())
+	if ivfPtrBinary != nil {
+		return int32(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
+	}
+
+	return 0
 }
