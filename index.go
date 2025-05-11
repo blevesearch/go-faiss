@@ -81,6 +81,9 @@ type Index interface {
 	SearchBinaryWithIDs(x []uint8, k int64, params json.RawMessage) (distances []int32,
 		labels []int64, err error)
 
+	SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,
+		params json.RawMessage) (distances []int32, labels []int64, err error)
+
 	SearchBinary(x []uint8, k int64) (distances []int32,
 		labels []int64, err error)
 
@@ -390,9 +393,44 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 	}
 	defer searchParams.Delete()
 
-	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
+	d, labels, err := idx.searchWithParams(x, k, searchParams.sp)
+	distances = d.([]float32)
 
 	return
+}
+
+func (idx *faissIndex) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,
+	params json.RawMessage) (distances []int32, labels []int64, err error,
+) {
+	if params == nil && len(exclude) == 0 {
+		return idx.SearchBinary(x, k)
+	}
+
+	var selector *C.FaissIDSelector
+	if len(exclude) > 0 {
+		excludeSelector, err := NewIDSelectorNot(exclude)
+		if err != nil {
+			return nil, nil, err
+		}
+		selector = excludeSelector.Get()
+		defer excludeSelector.Delete()
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	nq := (len(x) * 8) / idx.D()
+
+	distances = make([]int32, int64(nq)*k)
+	labels = make([]int64, int64(nq)*k)
+
+	d, labels, err := idx.searchWithParams(x, k, searchParams.sp)
+	distances = d.([]int32)
+
+	return distances, labels, nil
 }
 
 func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
@@ -455,7 +493,8 @@ func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
 	}
 	defer searchParams.Delete()
 
-	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
+	d, labels, err := idx.searchWithParams(x, k, searchParams.sp)
+	distances = d.([]float32)
 	return
 }
 
@@ -551,23 +590,49 @@ func (idx *faissIndex) Close() {
 	C.faiss_IndexBinary_free(idx.idxBinary)
 }
 
-func (idx *faissIndex) searchWithParams(x []float32, k int64, searchParams *C.FaissSearchParameters) (
-	distances []float32, labels []int64, err error,
+func (idx *faissIndex) searchWithParams(x interface{}, k int64, searchParams *C.FaissSearchParameters) (
+	distances interface{}, labels []int64, err error,
 ) {
-	n := len(x) / idx.D()
-	distances = make([]float32, int64(n)*k)
-	labels = make([]int64, int64(n)*k)
+	floatVec, ok := x.([]float32)
+	if ok {
+		n := len(floatVec) / idx.D()
+		distancesFloat := make([]float32, int64(n)*k)
+		labels = make([]int64, int64(n)*k)
 
-	if c := C.faiss_Index_search_with_params(
-		idx.idx,
-		C.idx_t(n),
-		(*C.float)(&x[0]),
-		C.idx_t(k),
-		searchParams,
-		(*C.float)(&distances[0]),
-		(*C.idx_t)(&labels[0]),
-	); c != 0 {
-		err = getLastError()
+		if c := C.faiss_Index_search_with_params(
+			idx.idx,
+			C.idx_t(n),
+			(*C.float)(&floatVec[0]),
+			C.idx_t(k),
+			searchParams,
+			(*C.float)(&distancesFloat[0]),
+			(*C.idx_t)(&labels[0]),
+		); c != 0 {
+			err = getLastError()
+		}
+
+		distances = distancesFloat
+	} else {
+		c, ok := x.([]uint8)
+		if ok {
+			n := (len(c) * 8) / idx.D()
+			distancesBinary := make([]int32, int64(n)*k)
+			labels = make([]int64, int64(n)*k)
+
+			if c := C.faiss_IndexBinary_search_with_params(
+				idx.idxBinary,
+				C.idx_t(n),
+				(*C.uint8_t)(&c[0]),
+				C.idx_t(k),
+				searchParams,
+				(*C.int32_t)(&distancesBinary[0]),
+				(*C.idx_t)(&labels[0]),
+			); c != 0 {
+				err = getLastError()
+			}
+
+			distances = distancesBinary
+		}
 	}
 
 	return
