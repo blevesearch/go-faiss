@@ -41,7 +41,7 @@ func (idx *IndexImpl) SetDirectMap(mapType int) (err error) {
 	}
 
 	// Get index type for better error message
-	return fmt.Errorf("index is not of ivf type 2")
+	return fmt.Errorf("unable to set direct map")
 }
 
 func (idx *IndexImpl) GetSubIndex() (*IndexImpl, error) {
@@ -74,8 +74,7 @@ func (idx *IndexImpl) SetNProbe(nprobe int32) error {
 		return nil
 	}
 
-	// Get index type for better error message
-	return fmt.Errorf("index is not of ivf type 3")
+	return fmt.Errorf("unable to get nprobe")
 }
 
 func (idx *IndexImpl) GetNProbe() int32 {
