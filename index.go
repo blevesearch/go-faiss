@@ -119,7 +119,7 @@ type Index interface {
 
 	cPtrBinary() *C.FaissIndexBinary
 
-	IVFDistCompute(queryData []float32, ids []int64, k int, distances []float32)
+	DistCompute(queryData []float32, ids []int64, k int, distances []float32) error
 }
 
 type faissIndex struct {
@@ -131,9 +131,13 @@ func (idx *faissIndex) cPtr() *C.FaissIndex {
 	return idx.idx
 }
 
-func (idx *faissIndex) IVFDistCompute(queryData []float32, ids []int64, k int, distances []float32) {
-	C.faiss_IndexIVF_dist_compute(idx.idx, (*C.float)(&queryData[0]),
-		(*C.idx_t)(&ids[0]), (C.size_t)(k), (*C.float)(&distances[0]))
+func (idx *faissIndex) DistCompute(queryData []float32, ids []int64, k int, distances []float32) error {
+	if c := C.faiss_Index_dist_compute(idx.idx, (*C.float)(&queryData[0]),
+		(*C.idx_t)(&ids[0]), (C.size_t)(k), (*C.float)(&distances[0])); c != 0 {
+		return getLastError()
+	}
+
+	return nil
 }
 
 func (idx *faissIndex) cPtrBinary() *C.FaissIndexBinary {
