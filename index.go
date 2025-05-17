@@ -479,7 +479,7 @@ func (idx *faissIndex) SearchBinary(x []uint8, k int64) (distances []int32, labe
 		err = getLastError()
 	}
 
-	return distances, labels, nil
+	return distances, labels, err 
 }
 
 func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
