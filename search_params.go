@@ -2,7 +2,6 @@ package faiss
 
 /*
 #include <faiss/c_api/Index_c.h>
-#include <faiss/c_api/IndexBinary_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
 */
@@ -79,11 +78,7 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		nlist = int(C.faiss_IndexIVF_nlist(ivfIdx))
 		nprobe = int(C.faiss_IndexIVF_nprobe(ivfIdx))
 		nvecs = int(C.faiss_Index_ntotal(idx.cPtr()))
-	} else if bivfIdx := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary()); bivfIdx != nil {
-		nlist = int(C.faiss_IndexBinaryIVF_nlist(bivfIdx))
-		nprobe = int(C.faiss_IndexBinaryIVF_nprobe(bivfIdx))
-		nvecs = int(C.faiss_IndexBinary_ntotal(idx.cPtrBinary()))
-	}
+	} 
 
 	if defaultParams != nil {
 		if defaultParams.Nlist > 0 {
@@ -121,16 +116,6 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		); c != 0 {
 			rv.Delete()
 			return nil, fmt.Errorf("failed to create faiss IVF search params")
-		}
-	} else if bivfIdx := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary()); bivfIdx != nil {
-		if c := C.faiss_SearchParametersIVF_new_with(
-			&rv.sp,
-			sel,
-			C.size_t(nprobe),
-			C.size_t(maxCodes),
-		); c != 0 {
-			rv.Delete()
-			return nil, fmt.Errorf("failed to create faiss BIVF search params")
 		}
 	}
 	return rv, nil
