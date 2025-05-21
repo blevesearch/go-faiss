@@ -81,7 +81,7 @@ type Index interface {
 	SearchBinaryWithIDs(x []uint8, k int64, params json.RawMessage) (distances []int32,
 		labels []int64, err error)
 
-	SearchBinary(x []uint8, k int64) (distances []int32,
+	SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32,
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
@@ -408,11 +408,18 @@ func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
 	distances = make([]int32, int64(nq)*k)
 	labels = make([]int64, int64(nq)*k)
 
-	if c := C.faiss_IndexBinary_search(
+	searchParams, err := NewSearchParams(idx, params, nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	if c := C.faiss_IndexBinary_search_with_params(
 		idx.idxBinary,
 		C.idx_t(nq),
 		(*C.uint8_t)(&x[0]),
 		C.idx_t(k),
+		searchParams.sp,
 		(*C.int32_t)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
 	); c != 0 {
@@ -422,26 +429,43 @@ func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
 	return distances, labels, nil
 }
 
-func (idx *faissIndex) SearchBinary(x []uint8, k int64) (distances []int32, labels []int64, err error,
-) {
+func (idx *faissIndex) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,params json.RawMessage) (distances []int32,
+	labels []int64, err error) {
 	d := idx.D()
 	nq := (len(x) * 8) / d
 
 	distances = make([]int32, int64(nq)*k)
 	labels = make([]int64, int64(nq)*k)
 
-	if c := C.faiss_IndexBinary_search(
+	var selector *C.FaissIDSelector
+	if len(exclude) > 0 {
+		excludeSelector, err := NewIDSelectorNot(exclude)
+		if err != nil {
+			return nil, nil, err
+		}
+		selector = excludeSelector.Get()
+		defer excludeSelector.Delete()
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	if c := C.faiss_IndexBinary_search_with_params(
 		idx.idxBinary,
 		C.idx_t(nq),
 		(*C.uint8_t)(&x[0]),
 		C.idx_t(k),
+		searchParams.sp,
 		(*C.int32_t)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
-	); c != 0 {
+		); c != 0 {
 		err = getLastError()
 	}
 
-	return distances, labels, err 
+	return distances, labels, err
 }
 
 func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,

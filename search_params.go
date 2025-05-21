@@ -3,6 +3,7 @@ package faiss
 /*
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
+#include <faiss/c_api/IndexBinary_c.h>
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
 */
 import "C"
@@ -78,7 +79,11 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		nlist = int(C.faiss_IndexIVF_nlist(ivfIdx))
 		nprobe = int(C.faiss_IndexIVF_nprobe(ivfIdx))
 		nvecs = int(C.faiss_Index_ntotal(idx.cPtr()))
-	} 
+	} else if bivfIdx := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary()); bivfIdx != nil {
+		nlist = int(C.faiss_IndexBinaryIVF_nlist(bivfIdx))
+		nprobe = int(C.faiss_IndexBinaryIVF_nprobe(bivfIdx))
+		nvecs = int(C.faiss_IndexBinary_ntotal(idx.cPtrBinary()))
+	}
 
 	if defaultParams != nil {
 		if defaultParams.Nlist > 0 {
@@ -107,7 +112,10 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		maxCodes = int(float32(nvecs) * (ivfParams.MaxCodesPct / 100))
 	} // else, maxCodes will be set to the default value of 0, which means no limit
 
-	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx != nil {
+	ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr())
+	bivfIdx := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary())
+
+	if ivfIdx != nil || bivfIdx != nil {
 		if c := C.faiss_SearchParametersIVF_new_with(
 			&rv.sp,
 			sel,
