@@ -78,7 +78,10 @@ type Index interface {
 	SearchWithIDs(x []float32, k int64, include []int64, params json.RawMessage) (distances []float32,
 		labels []int64, err error)
 
-	SearchBinaryWithIDs(x []uint8, k int64, params json.RawMessage) (distances []int32,
+	SearchBinary(x []uint8, k int64) (distances []int32,
+		labels []int64, err error)
+
+	SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) (distances []int32,
 		labels []int64, err error)
 
 	SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32,
@@ -399,7 +402,30 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 	return
 }
 
-func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
+func (idx *faissIndex) SearchBinary(x []uint8, k int64) (distances []int32,
+	labels []int64, err error,
+) {
+	d := idx.D()
+	nq := (len(x) * 8) / d
+
+	distances = make([]int32, int64(nq)*k)
+	labels = make([]int64, int64(nq)*k)
+
+	if c := C.faiss_IndexBinary_search(
+		idx.idxBinary,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return distances, labels, nil
+}
+
+func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64, include []int64,
 	params json.RawMessage) (distances []int32, labels []int64, err error,
 ) {
 	d := idx.D()
@@ -408,7 +434,17 @@ func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
 	distances = make([]int32, int64(nq)*k)
 	labels = make([]int64, int64(nq)*k)
 
-	searchParams, err := NewSearchParams(idx, params, nil, nil)
+	var selector *C.FaissIDSelector
+	if len(include) > 0 {
+		includeSelector, err := NewIDSelectorBatch(include)
+		if err != nil {
+			return nil, nil, err
+		}
+		selector = includeSelector.Get()
+		defer includeSelector.Delete()
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -429,8 +465,12 @@ func (idx *faissIndex) SearchBinaryWithIDs(x []uint8, k int64,
 	return distances, labels, nil
 }
 
-func (idx *faissIndex) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,params json.RawMessage) (distances []int32,
+func (idx *faissIndex) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32,
 	labels []int64, err error) {
+	if len(exclude) == 0 && params == nil {
+		return idx.SearchBinary(x, k)
+	}
+
 	d := idx.D()
 	nq := (len(x) * 8) / d
 
@@ -461,7 +501,7 @@ func (idx *faissIndex) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int6
 		searchParams.sp,
 		(*C.int32_t)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
-		); c != 0 {
+	); c != 0 {
 		err = getLastError()
 	}
 
