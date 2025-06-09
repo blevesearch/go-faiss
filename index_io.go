@@ -5,29 +5,89 @@ package faiss
 #include <stdio.h>
 #include <faiss/c_api/index_io_c.h>
 #include <faiss/c_api/index_io_c_ex.h>
+#include <faiss/c_api/Index_c.h>
+#include <faiss/c_api/IndexBinary_c.h>
 */
 import "C"
 import (
+	"fmt"
 	"unsafe"
 )
 
-// WriteIndex writes an index to a file.
-func WriteIndex(idx Index, filename string) error {
+const (
+	IOFlagMmap         = C.FAISS_IO_FLAG_MMAP
+	IOFlagReadOnly     = C.FAISS_IO_FLAG_READ_ONLY
+	IOFlagReadMmap     = C.FAISS_IO_FLAG_READ_MMAP | C.FAISS_IO_FLAG_ONDISK_IVF
+	IOFlagSkipPrefetch = C.FAISS_IO_FLAG_SKIP_PREFETCH
+)
+
+// WriteIndex writes a float index to a file
+func WriteIndex(idx FloatIndex, filename string) error {
+	impl, ok := idx.(*IndexImpl)
+	if !ok {
+		return fmt.Errorf("invalid index type for float index serialization")
+	}
+
 	cfname := C.CString(filename)
 	defer C.free(unsafe.Pointer(cfname))
-	if c := C.faiss_write_index_fname(idx.cPtr(), cfname); c != 0 {
+	if c := C.faiss_write_index_fname(impl.cPtrFloat(), cfname); c != 0 {
 		return getLastError()
 	}
 	return nil
 }
 
-func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
+// WriteBinaryIndex writes a binary index to a file
+func WriteBinaryIndex(idx BinaryIndex, filename string) error {
+	impl, ok := idx.(*BinaryIndexImpl)
+	if !ok {
+		return fmt.Errorf("invalid index type for binary index serialization")
+	}
+
+	cfname := C.CString(filename)
+	defer C.free(unsafe.Pointer(cfname))
+	if c := C.faiss_write_index_binary_fname(impl.cPtrBinary(), cfname); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+// ReadIndex reads a float index from a file
+func ReadIndex(filename string, ioflags int) (FloatIndex, error) {
+	cfname := C.CString(filename)
+	defer C.free(unsafe.Pointer(cfname))
+	var idx *C.FaissIndex
+	if c := C.faiss_read_index_fname(cfname, C.int(ioflags), &idx); c != 0 {
+		return nil, getLastError()
+	}
+	return &IndexImpl{
+		indexPtr: idx,
+		d:        int(C.faiss_Index_d(idx)),
+		metric:   int(C.faiss_Index_metric_type(idx)),
+	}, nil
+}
+
+// ReadBinaryIndex reads a binary index from a file
+func ReadBinaryIndex(filename string, ioflags int) (BinaryIndex, error) {
+	cfname := C.CString(filename)
+	defer C.free(unsafe.Pointer(cfname))
+	var idx *C.FaissIndexBinary
+	if c := C.faiss_read_index_binary_fname(cfname, C.int(ioflags), &idx); c != 0 {
+		return nil, getLastError()
+	}
+	return &BinaryIndexImpl{
+		indexPtr: idx,
+		d:        int(C.faiss_IndexBinary_d(idx)),
+		metric:   int(C.faiss_IndexBinary_metric_type(idx)),
+	}, nil
+}
+
+func WriteIndexIntoBuffer(idx FloatIndex) ([]byte, error) {
 	// the values to be returned by the faiss APIs
 	tempBuf := (*C.uchar)(nil)
 	bufSize := C.size_t(0)
 
 	if c := C.faiss_write_index_buf(
-		idx.cPtr(),
+		idx.cPtrFloat(),
 		&bufSize,
 		&tempBuf,
 	); c != 0 {
@@ -79,7 +139,7 @@ func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
 	return rv, nil
 }
 
-func WriteBinaryIndexIntoBuffer(idx Index) ([]byte, error) {
+func WriteBinaryIndexIntoBuffer(idx BinaryIndex) ([]byte, error) {
 	// the values to be returned by the faiss APIs
 	tempBuf := (*C.uchar)(nil)
 	bufSize := C.size_t(0)
@@ -137,64 +197,48 @@ func WriteBinaryIndexIntoBuffer(idx Index) ([]byte, error) {
 	return rv, nil
 }
 
-func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
+// ReadIndexFromBuffer deserializes a float index from a byte buffer
+func ReadIndexFromBuffer(buf []byte, ioFlags int) (FloatIndex, error) {
 	ptr := (*C.uchar)(unsafe.Pointer(&buf[0]))
 	size := C.size_t(len(buf))
 
 	// the idx var has C.FaissIndex within the struct which is nil as of now.
-	var idx faissIndex
+	var idx *C.FaissIndex
 	if c := C.faiss_read_index_buf(ptr,
 		size,
-		C.int(ioflags),
-		&idx.idx); c != 0 {
+		C.int(ioFlags),
+		&idx); c != 0 {
 		return nil, getLastError()
 	}
 
 	ptr = nil
 
-	// after exiting the faiss_read_index_buf, the ref count to the memory allocated
-	// for the freshly created faiss::index becomes 1 (held by idx.idx of type C.FaissIndex)
-	// this is allocated on the C heap, so not available for golang's GC. hence needs
-	// to be cleaned up after the index is longer being used - to be done at zap layer.
-	return &IndexImpl{&idx}, nil
+	return &IndexImpl{
+		indexPtr: idx,
+		d:        int(C.faiss_Index_d(idx)),
+		metric:   int(C.faiss_Index_metric_type(idx)),
+	}, nil
 }
 
-func ReadBinaryIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
+// ReadBinaryIndexFromBuffer deserializes a binary index from a byte buffer
+func ReadBinaryIndexFromBuffer(buf []byte, ioFlags int) (BinaryIndex, error) {
 	ptr := (*C.uchar)(unsafe.Pointer(&buf[0]))
 	size := C.size_t(len(buf))
 
 	// the idx var has C.FaissIndex within the struct which is nil as of now.
-	var idxBinary faissIndex
+	var idxBinary *C.FaissIndexBinary
 	if c := C.faiss_read_index_binary_buf(ptr,
 		size,
-		C.int(ioflags),
-		&idxBinary.idxBinary); c != 0 {
+		C.int(ioFlags),
+		&idxBinary); c != 0 {
 		return nil, getLastError()
 	}
 
 	ptr = nil
 
-	// after exiting the faiss_read_index_buf, the ref count to the memory allocated
-	// for the freshly created faiss::index becomes 1 (held by idx.idx of type C.FaissIndex)
-	// this is allocated on the C heap, so not available for golang's GC. hence needs
-	// to be cleaned up after the index is longer being used - to be done at zap layer.
-	return &IndexImpl{&idxBinary}, nil
-}
-
-const (
-	IOFlagMmap         = C.FAISS_IO_FLAG_MMAP
-	IOFlagReadOnly     = C.FAISS_IO_FLAG_READ_ONLY
-	IOFlagReadMmap     = C.FAISS_IO_FLAG_READ_MMAP | C.FAISS_IO_FLAG_ONDISK_IVF
-	IOFlagSkipPrefetch = C.FAISS_IO_FLAG_SKIP_PREFETCH
-)
-
-// ReadIndex reads an index from a file.
-func ReadIndex(filename string, ioflags int) (*IndexImpl, error) {
-	cfname := C.CString(filename)
-	defer C.free(unsafe.Pointer(cfname))
-	var idx faissIndex
-	if c := C.faiss_read_index_fname(cfname, C.int(ioflags), &idx.idx); c != 0 {
-		return nil, getLastError()
-	}
-	return &IndexImpl{&idx}, nil
+	return &BinaryIndexImpl{
+		indexPtr: idxBinary,
+		d:        int(C.faiss_IndexBinary_d(idxBinary)),
+		metric:   int(C.faiss_IndexBinary_metric_type(idxBinary)),
+	}, nil
 }

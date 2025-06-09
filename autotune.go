@@ -6,6 +6,7 @@ package faiss
 */
 import "C"
 import (
+	"fmt"
 	"unsafe"
 )
 
@@ -30,11 +31,20 @@ func (p *ParameterSpace) SetIndexParameter(idx Index, name string, val float64) 
 		C.free(unsafe.Pointer(cname))
 	}()
 
-	c := C.faiss_ParameterSpace_set_index_parameter(
-		p.ps, idx.cPtr(), cname, C.double(val))
-	if c != 0 {
-		return getLastError()
+	switch idx.(type) {
+	case FloatIndex:
+		idx := idx.(*IndexImpl)
+		c := C.faiss_ParameterSpace_set_index_parameter(
+			p.ps, idx.cPtrFloat(), cname, C.double(val))
+		if c != 0 {
+			return getLastError()
+		}
+	case BinaryIndex:
+		return fmt.Errorf("binary indexes not supported for auto-tuning")
+	default:
+		return fmt.Errorf("unsupported index type")
 	}
+
 	return nil
 }
 
