@@ -86,6 +86,8 @@ type Index interface {
 
 	MergeFrom(other Index, add_id int64) error
 
+	DistCompute(queryData []float32, ids []int64, k int, distances []float32) error
+
 	// RangeSearch queries the index with the vectors in x.
 	// Returns all vectors with distance < radius.
 	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
@@ -199,14 +201,9 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 
 	n := len(x) / idx.D()
 
-	c := C.faiss_Search_closest_eligible_centroids(
-		idx.idx,
-		(C.idx_t)(n),
-		(*C.float)(&x[0]),
-		(C.idx_t)(len(centroidIDs)),
-		(*C.float)(&centroidDistances[0]),
-		(*C.idx_t)(&centroids[0]),
-		params.sp)
+	c := C.faiss_Search_closest_eligible_centroids(idx.idx, (C.idx_t)(n),
+		(*C.float)(&x[0]), (C.idx_t)(len(centroidIDs)),
+		(*C.float)(&centroidDistances[0]), (*C.idx_t)(&centroids[0]), params.sp)
 	if c != 0 {
 		return nil, nil, getLastError()
 	}
@@ -214,7 +211,16 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	return centroids, centroidDistances, nil
 }
 
-func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
+func (idx *faissIndex) DistCompute(queryData []float32, ids []int64, k int, distances []float32) error {
+	if c := C.faiss_Index_dist_compute(idx.cPtr(), (*C.float)(&queryData[0]),
+		(*C.idx_t)(&ids[0]), (C.size_t)(k), (*C.float)(&distances[0])); c != 0 {
+		return getLastError()
+	}
+
+	return nil
+}
+
+func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
 	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x,
 	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
 
