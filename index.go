@@ -220,7 +220,7 @@ func (idx *faissIndex) DistCompute(queryData []float32, ids []int64, k int, dist
 	return nil
 }
 
-func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector, nvecs int,
+func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x,
 	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
 
