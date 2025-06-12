@@ -7,6 +7,7 @@ package faiss
 #include <faiss/c_api/IndexIVF_c.h>
 #include <faiss/c_api/IndexIVF_c_ex.h>
 #include <faiss/c_api/IndexBinary_c.h>
+#include <faiss/c_api/IndexBinaryIVF_c.h>
 #include <faiss/c_api/index_factory_c.h>
 #include <faiss/c_api/MetaIndexes_c.h>
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
@@ -54,6 +55,14 @@ type BinaryIndex interface {
 	SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) ([]int32, []int64, error)
 	SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32,
 		labels []int64, err error)
+
+	ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error)
+	ObtainClustersWithDistancesFromIVFIndex(x []uint8, centroidIDs []int64) (
+		[]int64, []int32, error)
+	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
+	SearchClustersFromIVFIndex(selector Selector, eligibleCentroidIDs []int64,
+		minEligibleCentroids int, k int64, x []uint8, centroidDis []int32,
+		params json.RawMessage) ([]int32, []int64, error)
 }
 
 // FloatIndex defines methods specific to float-based FAISS indexes
@@ -154,6 +163,61 @@ func (idx *BinaryIndexImpl) Close() {
 		C.faiss_IndexBinary_free(idx.indexPtr)
 		idx.indexPtr = nil
 	}
+}
+
+func (idx *BinaryIndexImpl) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error) {
+	if !idx.IsIVFIndex() {
+		return nil, fmt.Errorf("index is not an IVF index")
+	}
+	clusterIDs := make([]int64, len(vecIDs))
+	if c := C.faiss_get_lists_for_keys_binary(
+		idx.indexPtr,
+		(*C.idx_t)(unsafe.Pointer(&vecIDs[0])),
+		(C.size_t)(len(vecIDs)),
+		(*C.idx_t)(unsafe.Pointer(&clusterIDs[0])),
+	); c != 0 {
+		return nil, getLastError()
+	}
+	rv := make(map[int64]int64, len(vecIDs))
+	for _, v := range clusterIDs {
+		rv[v]++
+	}
+	return rv, nil
+}
+
+func (idx *BinaryIndexImpl) ObtainClustersWithDistancesFromIVFIndex(x []uint8, centroidIDs []int64) (
+	[]int64, []int32, error) {
+	// Selector to include only the centroids whose IDs are part of 'centroidIDs'.
+	includeSelector, err := NewIDSelectorBatch(centroidIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer includeSelector.Delete()
+
+	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.Get(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer params.Delete()
+
+	// Populate these with the centroids and their distances.
+	centroidDistances := make([]int32, len(centroidIDs))
+
+	n := len(x) / idx.D()
+
+	c := C.faiss_Search_closest_eligible_centroids_binary(
+		idx.indexPtr,
+		(C.idx_t)(n),
+		(*C.uint8_t)(&x[0]),
+		(C.idx_t)(len(centroidIDs)),
+		(*C.int32_t)(&centroidDistances[0]),
+		(*C.idx_t)(&centroidIDs[0]),
+		params.sp)
+	if c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	return centroidIDs, centroidDistances, nil
 }
 
 func (idx *BinaryIndexImpl) Size() uint64 {
@@ -263,7 +327,7 @@ func (idx *BinaryIndexImpl) Train(vectors []uint8) error {
 }
 
 func (idx *BinaryIndexImpl) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32, labels []int64, err error) {
-	if len(exclude) == 0 && params == nil {
+	if len(exclude) == 0 && len(params) == 0 {
 		return idx.SearchBinary(x, k)
 	}
 
@@ -300,6 +364,49 @@ func (idx *BinaryIndexImpl) SearchBinaryWithoutIDs(x []uint8, k int64, exclude [
 	}
 
 	return distances, labels, err
+}
+
+func (idx *BinaryIndexImpl) SearchClustersFromIVFIndex(selector Selector,
+	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x []uint8,
+	centroidDis []int32, params json.RawMessage) ([]int32, []int64, error) {
+	tempParams := &defaultSearchParamsIVF{
+		Nlist: len(eligibleCentroidIDs),
+		// Have to override nprobe so that more clusters will be searched for this
+		// query, if required.
+		Nprobe: minEligibleCentroids,
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector.Get(), tempParams)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	n := (len(x) * 8) / idx.D()
+
+	distances := make([]int32, int64(n)*k)
+	labels := make([]int64, int64(n)*k)
+
+	effectiveNprobe := getNProbeFromSearchParams(searchParams)
+
+	eligibleCentroidIDs = eligibleCentroidIDs[:effectiveNprobe]
+	centroidDis = centroidDis[:effectiveNprobe]
+
+	if c := C.faiss_IndexBinaryIVF_search_preassigned_with_params(
+		idx.indexPtr,
+		(C.idx_t)(n),
+		(*C.uint8_t)(&x[0]),
+		(C.idx_t)(k),
+		(*C.idx_t)(&eligibleCentroidIDs[0]),
+		(*C.int32_t)(&centroidDis[0]),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+		(C.int)(0),
+		searchParams.sp); c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	return distances, labels, nil
 }
 
 // Factory functions
@@ -469,7 +576,7 @@ func (idx *IndexImpl) SearchWithIDs(queries []float32, k int64, include []int64,
 	}
 	defer includeSelector.Delete()
 
-	searchParams, err := NewSearchParams(nil, params, includeSelector.Get(), nil)
+	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
 	if err != nil {
 		return nil, nil, err
 	}

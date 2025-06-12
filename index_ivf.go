@@ -6,6 +6,7 @@ package faiss
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
 #include <faiss/c_api/IndexBinary_c.h>
+#include <faiss/c_api/IndexBinaryIVF_c.h>
 #include <faiss/c_api/IndexIVF_c_ex.h>
 */
 import "C"

@@ -71,6 +71,15 @@ func NewSearchParams(idx Index, params json.RawMessage, sel *C.FaissIDSelector,
 		return rv, nil
 	}
 
+	if !idx.IsIVFIndex() {
+		c := C.faiss_SearchParameters_new_with_selector(&rv.sp, sel)
+		if c != 0 {
+			rv.Delete()
+			return nil, fmt.Errorf("failed to create faiss search params")
+		}
+		return rv, nil
+	}
+
 	var nlist, nprobe, nvecs, maxCodes int
 	var ivfParams searchParamsIVF
 
