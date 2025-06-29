@@ -37,6 +37,7 @@ type Index interface {
 	IsIVFIndex() bool
 	SetNProbe(nprobe int32)
 	GetNProbe() int32
+	GetNlist() int
 	SetDirectMap(directMapType int) error
 
 	Close()
@@ -63,6 +64,9 @@ type BinaryIndex interface {
 	SearchClustersFromIVFIndex(selector Selector, eligibleCentroidIDs []int64,
 		minEligibleCentroids int, k int64, x []uint8, centroidDis []int32,
 		params json.RawMessage) ([]int32, []int64, error)
+
+	BinaryQuantizer() BinaryIndex
+	SetIsTrained(isTrained bool)
 }
 
 // FloatIndex defines methods specific to float-based FAISS indexes
@@ -88,6 +92,8 @@ type FloatIndex interface {
 	SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) ([]float32, []int64, error)
 	Reconstruct(key int64) (recons []float32, err error)
 	ReconstructBatch(ids []int64, vectors []float32) ([]float32, error)
+
+	GetCentroids() ([]float32, error)
 
 	// Applicable only to IVF indexes: Returns a map where the keys
 	// are cluster IDs and the values represent the count of input vectors that belong
@@ -121,6 +127,8 @@ type FloatIndex interface {
 	// RemoveIDs removes the vectors specified by sel from the index.
 	// Returns the number of elements removed and error.
 	RemoveIDs(sel *IDSelector) (int, error)
+
+	Quantizer() *C.FaissIndex
 }
 
 // IndexImpl represents a float vector index
@@ -220,6 +228,50 @@ func (idx *BinaryIndexImpl) ObtainClustersWithDistancesFromIVFIndex(x []uint8, c
 	return centroidIDs, centroidDistances, nil
 }
 
+func (idx *IndexImpl) GetNlist() int {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx != nil {
+		return int(C.faiss_IndexIVF_nlist(ivfIdx))
+	}
+	return 0
+}
+
+func (idx *IndexImpl) GetCentroids() ([]float32, error) {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx != nil {
+		ivfCentroids := make([]float32, idx.D()*idx.GetNlist())
+		C.faiss_IndexIVF_get_centroids(ivfIdx, (*C.float)(&ivfCentroids[0]))
+		return ivfCentroids, nil
+	}
+	return nil, fmt.Errorf("index is not an IVF index")
+}
+
+func (idx *IndexImpl) Quantizer() *C.FaissIndex {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx != nil {
+		return C.faiss_IndexIVF_quantizer(ivfIdx)
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) SetIsTrained(isTrained bool) {
+	if isTrained {
+		C.faiss_IndexBinaryIVF_set_is_trained((*C.FaissIndexBinaryIVF)(idx.cPtrBinary()),
+			C.int(1))
+	} else {
+		C.faiss_IndexBinaryIVF_set_is_trained((*C.FaissIndexBinaryIVF)(idx.cPtrBinary()),
+			C.int(0))
+	}
+}
+
+func (idx *BinaryIndexImpl) BinaryQuantizer() BinaryIndex {
+	if bivfIdx := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary()); bivfIdx != nil {
+		return &BinaryIndexImpl{
+			indexPtr: C.faiss_IndexBinaryIVF_quantizer(bivfIdx),
+			d:        idx.d,
+			metric:   idx.metric,
+		}
+	}
+	return nil
+}
+
 func (idx *BinaryIndexImpl) Size() uint64 {
 	return 0
 }
@@ -242,6 +294,13 @@ func (idx *BinaryIndexImpl) Ntotal() int64 {
 
 func (idx *BinaryIndexImpl) IsIVFIndex() bool {
 	return C.faiss_IndexBinaryIVF_cast(idx.indexPtr) != nil
+}
+
+func (idx *BinaryIndexImpl) GetNlist() int {
+	if ivfIdx := C.faiss_IndexBinaryIVF_cast(idx.indexPtr); ivfIdx != nil {
+		return int(C.faiss_IndexBinaryIVF_nlist(ivfIdx))
+	}
+	return 0
 }
 
 // Binary-specific operations
