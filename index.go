@@ -2,13 +2,16 @@ package faiss
 
 /*
 #include <stdlib.h>
+#include <stdint.h>
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
 #include <faiss/c_api/IndexIVF_c_ex.h>
-#include <faiss/c_api/Index_c_ex.h>
-#include <faiss/c_api/impl/AuxIndexStructures_c.h>
+#include <faiss/c_api/IndexBinary_c.h>
+#include <faiss/c_api/IndexBinaryIVF_c.h>
 #include <faiss/c_api/index_factory_c.h>
 #include <faiss/c_api/MetaIndexes_c.h>
+#include <faiss/c_api/impl/AuxIndexStructures_c.h>
+#include <faiss/c_api/Index_c_ex.h>
 */
 import "C"
 import (
@@ -17,17 +20,10 @@ import (
 	"unsafe"
 )
 
-// Index is a Faiss index.
-//
-// Note that some index implementations do not support all methods.
-// Check the Faiss wiki to see what operations an index supports.
+// Index is the common interface for both binary and float vector indexes
 type Index interface {
-	// D returns the dimension of the indexed vectors.
+	// Core index operations
 	D() int
-
-	// IsTrained returns true if the index has been trained or does not require
-	// training.
-	IsTrained() bool
 
 	// Ntotal returns the number of indexed vectors.
 	Ntotal() int64
@@ -35,17 +31,69 @@ type Index interface {
 	// MetricType returns the metric type of the index.
 	MetricType() int
 
-	// Train trains the index on a representative set of vectors.
-	Train(x []float32) error
+	Size() uint64
 
-	// Add adds vectors to the index.
-	Add(x []float32) error
-
-	// AddWithIDs is like Add, but stores xids instead of sequential IDs.
-	AddWithIDs(x []float32, xids []int64) error
-
-	// Returns true if the index is an IVF index.
+	// IVF-specific operations, common to both float and binary IVF indexes
 	IsIVFIndex() bool
+	SetNProbe(nprobe int32)
+	GetNProbe() int32
+	GetNlist() int
+	SetDirectMap(directMapType int) error
+
+	Close()
+}
+
+// BinaryIndex defines methods specific to binary FAISS indexes
+type BinaryIndex interface {
+	Index
+
+	cPtrBinary() *C.FaissIndexBinary
+	// Binary-specific operations
+	TrainBinary(vectors []uint8) error
+	AddBinary(vectors []uint8) error
+	AddBinaryWithIDs(vectors []uint8, ids []int64) error
+	SearchBinary(x []uint8, k int64) ([]int32, []int64, error)
+	SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) ([]int32, []int64, error)
+	SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32,
+		labels []int64, err error)
+
+	ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error)
+	ObtainClustersWithDistancesFromIVFIndex(x []uint8, centroidIDs []int64) (
+		[]int64, []int32, error)
+	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
+	SearchClustersFromIVFIndex(selector Selector, eligibleCentroidIDs []int64,
+		minEligibleCentroids int, k int64, x []uint8, centroidDis []int32,
+		params json.RawMessage) ([]int32, []int64, error)
+
+	BinaryQuantizer() BinaryIndex
+	SetIsTrained(isTrained bool)
+}
+
+// FloatIndex defines methods specific to float-based FAISS indexes
+type FloatIndex interface {
+	Index
+
+	cPtrFloat() *C.FaissIndex
+	// Float-specific operations
+	// Train trains the index on a representative set of vectors.
+	Train(vectors []float32) error
+	Add(vectors []float32) error
+	// AddWithIDs is like Add, but stores xids instead of sequential IDs.
+	AddWithIDs(vectors []float32, xids []int64) error
+	// Search queries the index with the vectors in x.
+	// Returns the IDs of the k nearest neighbors for each query vector and the
+	// corresponding distances.
+	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
+	// RangeSearch queries the index with the vectors in x.
+	// Returns all vectors with distance < radius.
+	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
+	SearchWithIDs(x []float32, k int64, include []int64, params json.RawMessage) ([]float32, []int64, error)
+	// SearchWithoutIDs is like Search, but excludes the vectors with IDs in exclude.
+	SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) ([]float32, []int64, error)
+	Reconstruct(key int64) (recons []float32, err error)
+	ReconstructBatch(ids []int64, vectors []float32) ([]float32, error)
+
+	GetCentroids() ([]float32, error)
 
 	// Applicable only to IVF indexes: Returns a map where the keys
 	// are cluster IDs and the values represent the count of input vectors that belong
@@ -64,31 +112,14 @@ type Index interface {
 	ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 		[]int64, []float32, error)
 
-	// Search queries the index with the vectors in x.
-	// Returns the IDs of the k nearest neighbors for each query vector and the
-	// corresponding distances.
-	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
-
-	SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) (distances []float32,
-		labels []int64, err error)
-
-	SearchWithIDs(x []float32, k int64, include []int64, params json.RawMessage) (distances []float32,
-		labels []int64, err error)
+	DistCompute(queryData []float32, ids []int64, k int, distances []float32) error
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
 	SearchClustersFromIVFIndex(selector Selector, eligibleCentroidIDs []int64,
 		minEligibleCentroids int, k int64, x, centroidDis []float32,
 		params json.RawMessage) ([]float32, []int64, error)
 
-	Reconstruct(key int64) ([]float32, error)
-
-	ReconstructBatch(keys []int64, recons []float32) ([]float32, error)
-
-	MergeFrom(other Index, add_id int64) error
-
-	// RangeSearch queries the index with the vectors in x.
-	// Returns all vectors with distance < radius.
-	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
+	MergeFrom(other IndexImpl, add_id int64) error
 
 	// Reset removes all vectors from the index.
 	Reset() error
@@ -97,67 +128,58 @@ type Index interface {
 	// Returns the number of elements removed and error.
 	RemoveIDs(sel *IDSelector) (int, error)
 
-	// Close frees the memory used by the index.
-	Close()
-
-	// consults the C++ side to get the size of the index
-	Size() uint64
-
-	cPtr() *C.FaissIndex
+	Quantizer() *C.FaissIndex
 }
 
-type faissIndex struct {
-	idx *C.FaissIndex
+// IndexImpl represents a float vector index
+type IndexImpl struct {
+	indexPtr *C.FaissIndex
+	d        int
+	metric   int
 }
 
-func (idx *faissIndex) cPtr() *C.FaissIndex {
-	return idx.idx
+// BinaryIndexImpl represents a binary vector index
+type BinaryIndexImpl struct {
+	indexPtr *C.FaissIndexBinary
+	d        int
+	metric   int
 }
 
-func (idx *faissIndex) Size() uint64 {
-	size := C.faiss_Index_size(idx.idx)
-	return uint64(size)
-}
-
-func (idx *faissIndex) D() int {
-	return int(C.faiss_Index_d(idx.idx))
-}
-
-func (idx *faissIndex) IsTrained() bool {
-	return C.faiss_Index_is_trained(idx.idx) != 0
-}
-
-func (idx *faissIndex) Ntotal() int64 {
-	return int64(C.faiss_Index_ntotal(idx.idx))
-}
-
-func (idx *faissIndex) MetricType() int {
-	return int(C.faiss_Index_metric_type(idx.idx))
-}
-
-func (idx *faissIndex) Train(x []float32) error {
-	n := len(x) / idx.D()
-	if c := C.faiss_Index_train(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		return getLastError()
+// NewBinaryIndexImpl creates a new binary index implementation
+func NewBinaryIndexImpl(d int, description string, metric int) (*BinaryIndexImpl, error) {
+	idx := &BinaryIndexImpl{
+		d:      d,
+		metric: metric,
 	}
-	return nil
-}
-
-func (idx *faissIndex) Add(x []float32) error {
-	n := len(x) / idx.D()
-	if c := C.faiss_Index_add(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		return getLastError()
+	var cDescription *C.char
+	if description != "" {
+		cDescription = C.CString(description)
+		defer C.free(unsafe.Pointer(cDescription))
 	}
-	return nil
+
+	var cIdx *C.FaissIndexBinary
+	if c := C.faiss_index_binary_factory(&cIdx, C.int(idx.d), cDescription); c != 0 {
+		return nil, getLastError()
+	}
+	idx.indexPtr = cIdx
+	return idx, nil
 }
 
-func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error) {
+// Core index operations
+func (idx *BinaryIndexImpl) Close() {
+	if idx.indexPtr != nil {
+		C.faiss_IndexBinary_free(idx.indexPtr)
+		idx.indexPtr = nil
+	}
+}
+
+func (idx *BinaryIndexImpl) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error) {
 	if !idx.IsIVFIndex() {
 		return nil, fmt.Errorf("index is not an IVF index")
 	}
 	clusterIDs := make([]int64, len(vecIDs))
-	if c := C.faiss_get_lists_for_keys(
-		idx.idx,
+	if c := C.faiss_get_lists_for_keys_binary(
+		idx.indexPtr,
 		(*C.idx_t)(unsafe.Pointer(&vecIDs[0])),
 		(C.size_t)(len(vecIDs)),
 		(*C.idx_t)(unsafe.Pointer(&clusterIDs[0])),
@@ -171,14 +193,351 @@ func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (ma
 	return rv, nil
 }
 
-func (idx *faissIndex) IsIVFIndex() bool {
-	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx == nil {
-		return false
+func (idx *BinaryIndexImpl) ObtainClustersWithDistancesFromIVFIndex(x []uint8, centroidIDs []int64) (
+	[]int64, []int32, error) {
+	// Selector to include only the centroids whose IDs are part of 'centroidIDs'.
+	includeSelector, err := NewIDSelectorBatch(centroidIDs)
+	if err != nil {
+		return nil, nil, err
 	}
-	return true
+	defer includeSelector.Delete()
+
+	params, err := NewSearchParams(idx, json.RawMessage{}, includeSelector.Get(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer params.Delete()
+
+	// Populate these with the centroids and their distances.
+	centroidDistances := make([]int32, len(centroidIDs))
+
+	n := len(x) / idx.D()
+
+	c := C.faiss_Search_closest_eligible_centroids_binary(
+		idx.indexPtr,
+		(C.idx_t)(n),
+		(*C.uint8_t)(&x[0]),
+		(C.idx_t)(len(centroidIDs)),
+		(*C.int32_t)(&centroidDistances[0]),
+		(*C.idx_t)(&centroidIDs[0]),
+		params.sp)
+	if c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	return centroidIDs, centroidDistances, nil
 }
 
-func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
+func (idx *IndexImpl) GetNlist() int {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx != nil {
+		return int(C.faiss_IndexIVF_nlist(ivfIdx))
+	}
+	return 0
+}
+
+func (idx *IndexImpl) GetCentroids() ([]float32, error) {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx != nil {
+		ivfCentroids := make([]float32, idx.D()*idx.GetNlist())
+		C.faiss_IndexIVF_get_centroids(ivfIdx, (*C.float)(&ivfCentroids[0]))
+		return ivfCentroids, nil
+	}
+	return nil, fmt.Errorf("index is not an IVF index")
+}
+
+func (idx *IndexImpl) Quantizer() *C.FaissIndex {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx != nil {
+		return C.faiss_IndexIVF_quantizer(ivfIdx)
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) SetIsTrained(isTrained bool) {
+	if isTrained {
+		C.faiss_IndexBinaryIVF_set_is_trained((*C.FaissIndexBinaryIVF)(idx.cPtrBinary()),
+			C.int(1))
+	} else {
+		C.faiss_IndexBinaryIVF_set_is_trained((*C.FaissIndexBinaryIVF)(idx.cPtrBinary()),
+			C.int(0))
+	}
+}
+
+func (idx *BinaryIndexImpl) BinaryQuantizer() BinaryIndex {
+	if bivfIdx := C.faiss_IndexBinaryIVF_cast(idx.cPtrBinary()); bivfIdx != nil {
+		return &BinaryIndexImpl{
+			indexPtr: C.faiss_IndexBinaryIVF_quantizer(bivfIdx),
+			d:        idx.d,
+			metric:   idx.metric,
+		}
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) Size() uint64 {
+	return 0
+}
+
+func (idx *BinaryIndexImpl) cPtrBinary() *C.FaissIndexBinary {
+	return idx.indexPtr
+}
+
+func (idx *BinaryIndexImpl) D() int {
+	return idx.d
+}
+
+func (idx *BinaryIndexImpl) MetricType() int {
+	return idx.metric
+}
+
+func (idx *BinaryIndexImpl) Ntotal() int64 {
+	return int64(C.faiss_IndexBinary_ntotal(idx.indexPtr))
+}
+
+func (idx *BinaryIndexImpl) IsIVFIndex() bool {
+	return C.faiss_IndexBinaryIVF_cast(idx.indexPtr) != nil
+}
+
+func (idx *BinaryIndexImpl) GetNlist() int {
+	if ivfIdx := C.faiss_IndexBinaryIVF_cast(idx.indexPtr); ivfIdx != nil {
+		return int(C.faiss_IndexBinaryIVF_nlist(ivfIdx))
+	}
+	return 0
+}
+
+// Binary-specific operations
+func (idx *BinaryIndexImpl) TrainBinary(vectors []uint8) error {
+	n := (len(vectors) * 8) / idx.d
+	if c := C.faiss_IndexBinary_train(idx.indexPtr, C.idx_t(n), (*C.uint8_t)(&vectors[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) AddBinary(vectors []uint8) error {
+	n := (len(vectors) * 8) / idx.d
+	if c := C.faiss_IndexBinary_add(idx.indexPtr, C.idx_t(n), (*C.uint8_t)(&vectors[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) AddBinaryWithIDs(vectors []uint8, ids []int64) error {
+	n := (len(vectors) * 8) / idx.d
+	if c := C.faiss_IndexBinary_add_with_ids(idx.indexPtr, C.idx_t(n), (*C.uint8_t)(&vectors[0]), (*C.idx_t)(&ids[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) SearchBinary(x []uint8, k int64) ([]int32, []int64, error) {
+	nq := (len(x) * 8) / idx.d
+	distances := make([]int32, int64(nq)*k)
+	labels := make([]int64, int64(nq)*k)
+
+	if c := C.faiss_IndexBinary_search(
+		idx.indexPtr,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		return nil, nil, getLastError()
+	}
+	return distances, labels, nil
+}
+
+func (idx *BinaryIndexImpl) SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) ([]int32, []int64, error) {
+	nq := (len(x) * 8) / idx.d
+	distances := make([]int32, int64(nq)*k)
+	labels := make([]int64, int64(nq)*k)
+
+	includeSelector, err := NewIDSelectorBatch(include)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer includeSelector.Delete()
+
+	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	if c := C.faiss_IndexBinary_search_with_params(
+		idx.indexPtr,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		searchParams.sp,
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		return nil, nil, getLastError()
+	}
+	return distances, labels, nil
+}
+
+func (idx *BinaryIndexImpl) Train(vectors []uint8) error {
+	n := (len(vectors) * 8) / idx.d
+	if c := C.faiss_IndexBinary_train(idx.indexPtr, C.idx_t(n), (*C.uint8_t)(&vectors[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *BinaryIndexImpl) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64, params json.RawMessage) (distances []int32, labels []int64, err error) {
+	if len(exclude) == 0 && len(params) == 0 {
+		return idx.SearchBinary(x, k)
+	}
+
+	nq := (len(x) * 8) / idx.d
+	distances = make([]int32, int64(nq)*k)
+	labels = make([]int64, int64(nq)*k)
+
+	var selector *C.FaissIDSelector
+	if len(exclude) > 0 {
+		excludeSelector, err := NewIDSelectorNot(exclude)
+		if err != nil {
+			return nil, nil, err
+		}
+		selector = excludeSelector.Get()
+		defer excludeSelector.Delete()
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	if c := C.faiss_IndexBinary_search_with_params(
+		idx.indexPtr,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		searchParams.sp,
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return distances, labels, err
+}
+
+func (idx *BinaryIndexImpl) SearchClustersFromIVFIndex(selector Selector,
+	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x []uint8,
+	centroidDis []int32, params json.RawMessage) ([]int32, []int64, error) {
+	tempParams := &defaultSearchParamsIVF{
+		Nlist: len(eligibleCentroidIDs),
+		// Have to override nprobe so that more clusters will be searched for this
+		// query, if required.
+		Nprobe: minEligibleCentroids,
+	}
+
+	searchParams, err := NewSearchParams(idx, params, selector.Get(), tempParams)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	n := (len(x) * 8) / idx.D()
+
+	distances := make([]int32, int64(n)*k)
+	labels := make([]int64, int64(n)*k)
+
+	effectiveNprobe := getNProbeFromSearchParams(searchParams)
+
+	eligibleCentroidIDs = eligibleCentroidIDs[:effectiveNprobe]
+	centroidDis = centroidDis[:effectiveNprobe]
+
+	if c := C.faiss_IndexBinaryIVF_search_preassigned_with_params(
+		idx.indexPtr,
+		(C.idx_t)(n),
+		(*C.uint8_t)(&x[0]),
+		(C.idx_t)(k),
+		(*C.idx_t)(&eligibleCentroidIDs[0]),
+		(*C.int32_t)(&centroidDis[0]),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+		(C.int)(0),
+		searchParams.sp); c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	return distances, labels, nil
+}
+
+// Factory functions
+func IndexBinaryFactory(d int, description string, metric int) (BinaryIndex, error) {
+	return NewBinaryIndexImpl(d, description, metric)
+}
+
+// Ensure BinaryIndexImpl implements BinaryIndex interface
+var _ BinaryIndex = (*BinaryIndexImpl)(nil)
+
+func (idx *IndexImpl) searchWithParams(x []float32, k int64, params *C.FaissSearchParameters) (distances []float32, labels []int64, err error) {
+	n := len(x) / idx.D()
+	distances = make([]float32, int64(n)*k)
+	labels = make([]int64, int64(n)*k)
+
+	if c := C.faiss_Index_search_with_params(
+		idx.indexPtr,
+		C.idx_t(n),
+		(*C.float)(&x[0]),
+		C.idx_t(k),
+		params,
+		(*C.float)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return
+}
+
+func (idx *IndexImpl) Size() uint64 {
+	return uint64(C.faiss_Index_size(idx.cPtrFloat()))
+}
+
+func (idx *IndexImpl) Train(x []float32) error {
+	n := len(x) / idx.D()
+	if c := C.faiss_Index_train(idx.indexPtr, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *IndexImpl) ObtainClusterVectorCountsFromIVFIndex(vecIDs []int64) (map[int64]int64, error) {
+	if !idx.IsIVFIndex() {
+		return nil, fmt.Errorf("index is not an IVF index")
+	}
+	clusterIDs := make([]int64, len(vecIDs))
+	if c := C.faiss_get_lists_for_keys(
+		idx.indexPtr,
+		(*C.idx_t)(unsafe.Pointer(&vecIDs[0])),
+		(C.size_t)(len(vecIDs)),
+		(*C.idx_t)(unsafe.Pointer(&clusterIDs[0])),
+	); c != 0 {
+		return nil, getLastError()
+	}
+	rv := make(map[int64]int64, len(vecIDs))
+	for _, v := range clusterIDs {
+		rv[v]++
+	}
+	return rv, nil
+}
+
+func (idx *IndexImpl) DistCompute(queryData []float32, ids []int64, k int, distances []float32) error {
+	if c := C.faiss_Index_dist_compute(idx.indexPtr, (*C.float)(&queryData[0]),
+		(*C.idx_t)(&ids[0]), (C.size_t)(k), (*C.float)(&distances[0])); c != 0 {
+		return getLastError()
+	}
+
+	return nil
+}
+
+func (idx *IndexImpl) ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 	[]int64, []float32, error) {
 	// Selector to include only the centroids whose IDs are part of 'centroidIDs'.
 	includeSelector, err := NewIDSelectorBatch(centroidIDs)
@@ -200,7 +559,7 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	n := len(x) / idx.D()
 
 	c := C.faiss_Search_closest_eligible_centroids(
-		idx.idx,
+		idx.indexPtr,
 		(C.idx_t)(n),
 		(*C.float)(&x[0]),
 		(C.idx_t)(len(centroidIDs)),
@@ -214,7 +573,7 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	return centroids, centroidDistances, nil
 }
 
-func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
+func (idx *IndexImpl) SearchClustersFromIVFIndex(selector Selector,
 	eligibleCentroidIDs []int64, minEligibleCentroids int, k int64, x,
 	centroidDis []float32, params json.RawMessage) ([]float32, []int64, error) {
 
@@ -241,7 +600,7 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	centroidDis = centroidDis[:effectiveNprobe]
 
 	if c := C.faiss_IndexIVF_search_preassigned_with_params(
-		idx.idx,
+		idx.indexPtr,
 		(C.idx_t)(n),
 		(*C.float)(&x[0]),
 		(C.idx_t)(k),
@@ -257,27 +616,51 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 	return distances, labels, nil
 }
 
-func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
-	n := len(x) / idx.D()
-	if c := C.faiss_Index_add_with_ids(
-		idx.idx,
-		C.idx_t(n),
-		(*C.float)(&x[0]),
-		(*C.idx_t)(&xids[0]),
-	); c != 0 {
-		return getLastError()
+func (idx *IndexImpl) IsIVFIndex() bool {
+	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtrFloat()); ivfIdx == nil {
+		return false
 	}
-	return nil
+	return true
 }
 
-func (idx *faissIndex) Search(x []float32, k int64) (
-	distances []float32, labels []int64, err error,
-) {
+// SearchWithIDs performs a search with ID filtering and search parameters
+func (idx *IndexImpl) SearchWithIDs(queries []float32, k int64, include []int64, params json.RawMessage) ([]float32, []int64, error) {
+	nq := len(queries) / idx.d
+	distances := make([]float32, int64(nq)*k)
+	labels := make([]int64, int64(nq)*k)
+
+	includeSelector, err := NewIDSelectorBatch(include)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer includeSelector.Delete()
+
+	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	if c := C.faiss_Index_search_with_params(
+		idx.indexPtr,
+		C.idx_t(nq),
+		(*C.float)(&queries[0]),
+		C.idx_t(k),
+		searchParams.sp,
+		(*C.float)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		return nil, nil, getLastError()
+	}
+	return distances, labels, nil
+}
+
+func (idx *IndexImpl) Search(x []float32, k int64) (distances []float32, labels []int64, err error) {
 	n := len(x) / idx.D()
 	distances = make([]float32, int64(n)*k)
 	labels = make([]int64, int64(n)*k)
 	if c := C.faiss_Index_search(
-		idx.idx,
+		idx.indexPtr,
 		C.idx_t(n),
 		(*C.float)(&x[0]),
 		C.idx_t(k),
@@ -287,15 +670,23 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 		err = getLastError()
 	}
 
-	return
+	return distances, labels, err
 }
 
-func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) (
-	distances []float32, labels []int64, err error,
-) {
+func (idx *IndexImpl) Ntotal() int64 {
+	return int64(C.faiss_Index_ntotal(idx.indexPtr))
+}
+
+// SearchWithoutIDs performs a search without ID filtering
+func (idx *IndexImpl) SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) (
+	[]float32, []int64, error) {
 	if params == nil && len(exclude) == 0 {
 		return idx.Search(x, k)
 	}
+
+	nq := len(x) / idx.d
+	distances := make([]float32, int64(nq)*k)
+	labels := make([]int64, int64(nq)*k)
 
 	var selector *C.FaissIDSelector
 	if len(exclude) > 0 {
@@ -315,139 +706,7 @@ func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, p
 
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
 
-	return
-}
-
-func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
-	params json.RawMessage) (distances []float32, labels []int64, err error,
-) {
-	includeSelector, err := NewIDSelectorBatch(include)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer includeSelector.Delete()
-
-	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer searchParams.Delete()
-
-	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
-	return
-}
-
-func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
-	rv := make([]float32, idx.D())
-	if c := C.faiss_Index_reconstruct(
-		idx.idx,
-		C.idx_t(key),
-		(*C.float)(&rv[0]),
-	); c != 0 {
-		err = getLastError()
-	}
-
-	return rv, err
-}
-
-func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float32, error) {
-	var err error
-	n := int64(len(keys))
-	if c := C.faiss_Index_reconstruct_batch(
-		idx.idx,
-		C.idx_t(n),
-		(*C.idx_t)(&keys[0]),
-		(*C.float)(&recons[0]),
-	); c != 0 {
-		err = getLastError()
-	}
-
-	return recons, err
-}
-
-func (i *IndexImpl) MergeFrom(other Index, add_id int64) error {
-	if impl, ok := other.(*IndexImpl); ok {
-		return i.Index.MergeFrom(impl.Index, add_id)
-	}
-	return fmt.Errorf("merge not support")
-}
-
-func (idx *faissIndex) MergeFrom(other Index, add_id int64) (err error) {
-	otherIdx, ok := other.(*faissIndex)
-	if !ok {
-		return fmt.Errorf("merge api not supported")
-	}
-
-	if c := C.faiss_Index_merge_from(
-		idx.idx,
-		otherIdx.idx,
-		(C.idx_t)(add_id),
-	); c != 0 {
-		err = getLastError()
-	}
-
-	return err
-}
-
-func (idx *faissIndex) RangeSearch(x []float32, radius float32) (
-	*RangeSearchResult, error,
-) {
-	n := len(x) / idx.D()
-	var rsr *C.FaissRangeSearchResult
-	if c := C.faiss_RangeSearchResult_new(&rsr, C.idx_t(n)); c != 0 {
-		return nil, getLastError()
-	}
-	if c := C.faiss_Index_range_search(
-		idx.idx,
-		C.idx_t(n),
-		(*C.float)(&x[0]),
-		C.float(radius),
-		rsr,
-	); c != 0 {
-		return nil, getLastError()
-	}
-	return &RangeSearchResult{rsr}, nil
-}
-
-func (idx *faissIndex) Reset() error {
-	if c := C.faiss_Index_reset(idx.idx); c != 0 {
-		return getLastError()
-	}
-	return nil
-}
-
-func (idx *faissIndex) RemoveIDs(sel *IDSelector) (int, error) {
-	var nRemoved C.size_t
-	if c := C.faiss_Index_remove_ids(idx.idx, sel.sel, &nRemoved); c != 0 {
-		return 0, getLastError()
-	}
-	return int(nRemoved), nil
-}
-
-func (idx *faissIndex) Close() {
-	C.faiss_Index_free(idx.idx)
-}
-
-func (idx *faissIndex) searchWithParams(x []float32, k int64, searchParams *C.FaissSearchParameters) (
-	distances []float32, labels []int64, err error,
-) {
-	n := len(x) / idx.D()
-	distances = make([]float32, int64(n)*k)
-	labels = make([]int64, int64(n)*k)
-
-	if c := C.faiss_Index_search_with_params(
-		idx.idx,
-		C.idx_t(n),
-		(*C.float)(&x[0]),
-		C.idx_t(k),
-		searchParams,
-		(*C.float)(&distances[0]),
-		(*C.idx_t)(&labels[0]),
-	); c != 0 {
-		err = getLastError()
-	}
-
-	return
+	return distances, labels, err
 }
 
 // -----------------------------------------------------------------------------
@@ -489,22 +748,130 @@ func (r *RangeSearchResult) Delete() {
 	C.faiss_RangeSearchResult_free(r.rsr)
 }
 
-// IndexImpl is an abstract structure for an index.
-type IndexImpl struct {
-	Index
-}
+// IndexFactory creates a new index using the factory function
+func IndexFactory(d int, description string, metric int) (FloatIndex, error) {
+	var cDescription *C.char
+	if description != "" {
+		cDescription = C.CString(description)
+		defer C.free(unsafe.Pointer(cDescription))
+	}
 
-// IndexFactory builds a composite index.
-// description is a comma-separated list of components.
-func IndexFactory(d int, description string, metric int) (*IndexImpl, error) {
-	cdesc := C.CString(description)
-	defer C.free(unsafe.Pointer(cdesc))
-	var idx faissIndex
-	c := C.faiss_index_factory(&idx.idx, C.int(d), cdesc, C.FaissMetricType(metric))
-	if c != 0 {
+	var idx *C.FaissIndex
+	if c := C.faiss_index_factory(&idx, C.int(d), cDescription, C.FaissMetricType(metric)); c != 0 {
 		return nil, getLastError()
 	}
-	return &IndexImpl{&idx}, nil
+
+	return &IndexImpl{
+		indexPtr: idx,
+		d:        d,
+		metric:   metric,
+	}, nil
+}
+
+func (idx *IndexImpl) Close() {
+	if idx.indexPtr != nil {
+		C.faiss_Index_free(idx.indexPtr)
+		idx.indexPtr = nil
+	}
+}
+
+func (idx *IndexImpl) D() int {
+	return idx.d
+}
+
+func (idx *IndexImpl) MetricType() int {
+	return idx.metric
+}
+
+func (idx *IndexImpl) RangeSearch(x []float32, radius float32) (
+	*RangeSearchResult, error,
+) {
+	n := len(x) / idx.D()
+	var rsr *C.FaissRangeSearchResult
+	if c := C.faiss_RangeSearchResult_new(&rsr, C.idx_t(n)); c != 0 {
+		return nil, getLastError()
+	}
+	if c := C.faiss_Index_range_search(
+		idx.indexPtr,
+		C.idx_t(n),
+		(*C.float)(&x[0]),
+		C.float(radius),
+		rsr,
+	); c != 0 {
+		return nil, getLastError()
+	}
+	return &RangeSearchResult{rsr}, nil
+}
+
+func (idx *IndexImpl) Reset() error {
+	if c := C.faiss_Index_reset(idx.indexPtr); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *IndexImpl) RemoveIDs(sel *IDSelector) (int, error) {
+	var nRemoved C.size_t
+	if c := C.faiss_Index_remove_ids(idx.indexPtr, sel.sel, &nRemoved); c != 0 {
+		return 0, getLastError()
+	}
+	return int(nRemoved), nil
+}
+
+func (idx *IndexImpl) MergeFrom(other IndexImpl, add_id int64) error {
+	if c := C.faiss_Index_merge_from(idx.indexPtr, other.cPtrFloat(), C.idx_t(add_id)); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+// Float-specific operations
+func (idx *IndexImpl) Add(vectors []float32) error {
+	n := len(vectors) / idx.d
+	if c := C.faiss_Index_add(idx.indexPtr, C.idx_t(n), (*C.float)(&vectors[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *IndexImpl) cPtrFloat() *C.FaissIndex {
+	return idx.indexPtr
+}
+
+func (idx *IndexImpl) AddWithIDs(vectors []float32, xids []int64) error {
+	n := len(vectors) / idx.d
+	if c := C.faiss_Index_add_with_ids(idx.indexPtr, C.idx_t(n), (*C.float)(&vectors[0]), (*C.idx_t)(&xids[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *IndexImpl) Reconstruct(key int64) (recons []float32, err error) {
+	rv := make([]float32, idx.D())
+	if c := C.faiss_Index_reconstruct(
+		idx.indexPtr,
+		C.idx_t(key),
+		(*C.float)(&rv[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return rv, err
+}
+
+func (idx *IndexImpl) ReconstructBatch(keys []int64, recons []float32) ([]float32, error) {
+	var err error
+	n := int64(len(keys))
+	if c := C.faiss_Index_reconstruct_batch(
+		idx.indexPtr,
+		C.idx_t(n),
+		(*C.idx_t)(&keys[0]),
+		(*C.float)(&recons[0]),
+	); c != 0 {
+		err = getLastError()
+	}
+
+	return recons, err
 }
 
 func SetOMPThreads(n uint) {
