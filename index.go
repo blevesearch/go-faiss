@@ -65,8 +65,9 @@ type Index interface {
 	ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 		[]int64, []float32, error)
 
-	// Applicable only to IVF indexes: Returns the top k centroid cardinalities and their vectors
-	ObtainTopKCentroidCardinalitiesFromIVFIndex(limit int) ([]uint64, [][]float32, error)
+	// Applicable only to IVF indexes: Returns the top k centroid cardinalities and
+	// their vectors in chosen order (descending or ascending)
+	ObtainKCentroidCardinalitiesFromIVFIndex(limit int, descending bool) ([]uint64, [][]float32, error)
 
 	// Search queries the index with the vectors in x.
 	// Returns the IDs of the k nearest neighbors for each query vector and the
@@ -218,7 +219,8 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	return centroids, centroidDistances, nil
 }
 
-func (idx *faissIndex) ObtainTopKCentroidCardinalitiesFromIVFIndex(limit int) ([]uint64, [][]float32, error) {
+func (idx *faissIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, descending bool) (
+	[]uint64, [][]float32, error) {
 	nlist := int(C.faiss_IndexIVF_nlist(idx.idx))
 	if nlist == 0 {
 		return nil, nil, nil
@@ -241,7 +243,7 @@ func (idx *faissIndex) ObtainTopKCentroidCardinalitiesFromIVFIndex(limit int) ([
 		return nil, nil, getLastError()
 	}
 
-	topIndices := getTopIndicesOfTopKCardinalities(centroidCardinalities, limit)
+	topIndices := getIndicesOfKCentroidCardinalities(centroidCardinalities, limit, descending)
 
 	rvCardinalities := make([]uint64, len(topIndices))
 	rvCentroids := make([][]float32, len(topIndices))
@@ -255,7 +257,7 @@ func (idx *faissIndex) ObtainTopKCentroidCardinalitiesFromIVFIndex(limit int) ([
 
 }
 
-func getTopIndicesOfTopKCardinalities(cardinalities []C.size_t, k int) []int {
+func getIndicesOfKCentroidCardinalities(cardinalities []C.size_t, k int, descending bool) []int {
 	if k <= 0 || k > len(cardinalities) {
 		return nil
 	}
@@ -271,10 +273,16 @@ func getTopIndicesOfTopKCardinalities(cardinalities []C.size_t, k int) []int {
 		pairs[i] = pair{v, i}
 	}
 
-	// Sort pairs by value descending
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].val > pairs[j].val
-	})
+	// Sort pairs by value descending if descending is true, otherwise ascending
+	if descending {
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].val > pairs[j].val
+		})
+	} else {
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].val < pairs[j].val
+		})
+	}
 
 	// Collect top k indexes
 	result := make([]int, k)
