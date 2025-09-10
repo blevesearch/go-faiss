@@ -64,6 +64,8 @@ type Index interface {
 	ObtainClustersWithDistancesFromIVFIndex(x []float32, centroidIDs []int64) (
 		[]int64, []float32, error)
 
+	Nlist() int
+
 	// Search queries the index with the vectors in x.
 	// Returns the IDs of the k nearest neighbors for each query vector and the
 	// corresponding distances.
@@ -104,6 +106,8 @@ type Index interface {
 	Size() uint64
 
 	cPtr() *C.FaissIndex
+
+	SetQuantizers(coarseQuantizer Index) error
 }
 
 type faissIndex struct {
@@ -212,6 +216,15 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 	}
 
 	return centroids, centroidDistances, nil
+}
+
+func (idx *faissIndex) Nlist() int {
+	if !idx.IsIVFIndex() {
+		return 0
+	} else {
+		fmt.Println("nlist", int(C.faiss_IndexIVF_nlist(idx.idx)))
+	}
+	return int(C.faiss_IndexIVF_nlist(idx.idx))
 }
 
 func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
