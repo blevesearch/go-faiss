@@ -9,6 +9,8 @@ package faiss
 import "C"
 import (
 	"errors"
+	"fmt"
+	"unsafe"
 )
 
 // NumGPUs returns the number of available GPU devices.
@@ -32,38 +34,61 @@ func SyncDevice(device int) error {
 	return nil
 }
 
-// TransferToGPU transfers a CPU index to the specified GPU device.
-func TransferToGPU(index Index, device int) (Index, error) {
-	var gpuResource *C.FaissStandardGpuResources
-	c := C.faiss_StandardGpuResources_new(&gpuResource)
-	if c != 0 {
-		return nil, errors.New("error initializing GPU resources")
+type GPUIndexImpl struct {
+	Index
+	gpuResource *C.FaissStandardGpuResources
+}
+
+func (g *GPUIndexImpl) Close() {
+	if g.Index != nil {
+		g.Index.Close()
 	}
-	var gpuIndex *C.FaissGpuIndex
-	c = C.faiss_index_cpu_to_gpu(
+	if g.gpuResource != nil {
+		C.faiss_StandardGpuResources_free(g.gpuResource)
+		g.gpuResource = nil
+	}
+}
+
+// TransferToGPU transfers a CPU index to the specified GPU device.
+// Returns the GPU index, a cleanup function, and any error encountered.
+func TransferToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
+	var gpuResource *C.FaissStandardGpuResources
+	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
+		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d", code)
+	}
+
+	var gpuIdx *C.FaissGpuIndex
+	code := C.faiss_index_cpu_to_gpu(
 		gpuResource,
 		C.int(device),
 		index.cPtr(),
-		&gpuIndex,
+		&gpuIdx,
 	)
-	if c != 0 {
-		return nil, errors.New("error transferring index to GPU")
+	if code != 0 {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d", device, code)
 	}
-	return &faissIndex{
-		idx: gpuIndex,
+
+	idx := &faissIndex{
+		idx: (*C.FaissIndex)(unsafe.Pointer(gpuIdx)),
+	}
+
+	return &GPUIndexImpl{
+		Index:       &IndexImpl{idx},
+		gpuResource: gpuResource,
 	}, nil
 }
 
-func TransferToCPU(index Index, device int) (Index, error) {
+// TransferToCPU transfers a GPU index back to CPU memory.
+func TransferToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 	var cpuIndex *C.FaissIndex
-	c := C.faiss_index_gpu_to_cpu(
-		index.cPtr(),
-		&cpuIndex,
-	)
-	if c != 0 {
-		return nil, errors.New("error transferring index to CPU")
+	if code := C.faiss_index_gpu_to_cpu(gpuIndex.cPtr(), &cpuIndex); code != 0 {
+		return nil, fmt.Errorf("failed to transfer index to CPU: error code %d", code)
 	}
-	return &faissIndex{
+
+	idx := &faissIndex{
 		idx: cpuIndex,
-	}, nil
+	}
+
+	return &IndexImpl{idx}, nil
 }
