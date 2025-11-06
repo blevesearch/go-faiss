@@ -34,6 +34,15 @@ func SyncDevice(device int) error {
 	return nil
 }
 
+func FreeMemory(device int) (uint64, error) {
+	var freeBytes C.size_t
+	c := C.faiss_get_free_memory(C.int(device), &freeBytes)
+	if c != 0 {
+		return 0, fmt.Errorf("error getting free memory for device %d", device)
+	}
+	return uint64(freeBytes), nil
+}
+
 type GPUIndexImpl struct {
 	Index
 	gpuResource *C.FaissStandardGpuResources
