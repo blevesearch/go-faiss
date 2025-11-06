@@ -221,6 +221,10 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, cent
 
 func (idx *faissIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, descending bool) (
 	[]uint64, [][]float32, error) {
+	if limit <= 0 {
+		return nil, nil, nil
+	}
+
 	nlist := int(C.faiss_IndexIVF_nlist(idx.idx))
 	if nlist == 0 {
 		return nil, nil, nil
@@ -243,7 +247,10 @@ func (idx *faissIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, desce
 		return nil, nil, getLastError()
 	}
 
-	topIndices := getIndicesOfKCentroidCardinalities(centroidCardinalities, limit, descending)
+	topIndices := getIndicesOfKCentroidCardinalities(
+		centroidCardinalities,
+		min(limit, nlist),
+		descending)
 
 	rvCardinalities := make([]uint64, len(topIndices))
 	rvCentroids := make([][]float32, len(topIndices))
@@ -258,38 +265,24 @@ func (idx *faissIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, desce
 }
 
 func getIndicesOfKCentroidCardinalities(cardinalities []C.size_t, k int, descending bool) []int {
-	if k <= 0 || k > len(cardinalities) {
-		return nil
+	n := len(cardinalities)
+	indices := make([]int, n)
+	for i := range indices {
+		indices[i] = i
 	}
 
-	// Store value and original index
-	type pair struct {
-		val C.size_t
-		idx int
+	// Sort only the indices based on cardinality values
+	sort.Slice(indices, func(i, j int) bool {
+		if descending {
+			return cardinalities[indices[i]] > cardinalities[indices[j]]
+		}
+		return cardinalities[indices[i]] < cardinalities[indices[j]]
+	})
+	if k >= n {
+		return indices
 	}
 
-	pairs := make([]pair, len(cardinalities))
-	for i, v := range cardinalities {
-		pairs[i] = pair{v, i}
-	}
-
-	// Sort pairs by value descending if descending is true, otherwise ascending
-	if descending {
-		sort.Slice(pairs, func(i, j int) bool {
-			return pairs[i].val > pairs[j].val
-		})
-	} else {
-		sort.Slice(pairs, func(i, j int) bool {
-			return pairs[i].val < pairs[j].val
-		})
-	}
-
-	// Collect top k indexes
-	result := make([]int, k)
-	for i := 0; i < k; i++ {
-		result[i] = pairs[i].idx
-	}
-	return result
+	return indices[:k]
 }
 
 func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
