@@ -23,17 +23,6 @@ func NumGPUs() (int, error) {
 	return int(rv), nil
 }
 
-// SyncDevice synchronizes the CPU against the specified device.
-// This forces the CPU to wait until all preceding commands on
-// the specified GPU device have completed.
-func SyncDevice(device int) error {
-	c := C.faiss_gpu_sync_device(C.int(device))
-	if c != 0 {
-		return errors.New("error synchronizing device")
-	}
-	return nil
-}
-
 func FreeMemory(device int) (uint64, error) {
 	var freeBytes C.size_t
 	c := C.faiss_get_free_memory(C.int(device), &freeBytes)
