@@ -38,8 +38,12 @@ type GPUIndexImpl struct {
 }
 
 func (g *GPUIndexImpl) Close() {
+	if g == nil {
+		return
+	}
 	if g.Index != nil {
 		g.Index.Close()
+		g.Index = nil
 	}
 	if g.gpuResource != nil {
 		C.faiss_StandardGpuResources_free(g.gpuResource)
@@ -48,8 +52,10 @@ func (g *GPUIndexImpl) Close() {
 }
 
 // TransferToGPU transfers a CPU index to the specified GPU device.
-// Returns the GPU index, a cleanup function, and any error encountered.
 func TransferToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
+	if index == nil {
+		return nil, errors.New("index cannot be nil")
+	}
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d", code)
@@ -79,6 +85,9 @@ func TransferToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
 
 // TransferToCPU transfers a GPU index back to CPU memory.
 func TransferToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
+	if gpuIndex == nil {
+		return nil, errors.New("gpuIndex cannot be nil")
+	}
 	var cpuIndex *C.FaissIndex
 	if code := C.faiss_index_gpu_to_cpu(gpuIndex.cPtr(), &cpuIndex); code != 0 {
 		return nil, fmt.Errorf("failed to transfer index to CPU: error code %d", code)
