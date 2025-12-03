@@ -61,6 +61,7 @@ type Index interface {
 	// Applicable only to IVF indexes: Returns the top k centroid cardinalities and
 	// their vectors in chosen order (descending or ascending)
 	ObtainKCentroidCardinalitiesFromIVFIndex(limit int, descending bool) ([]uint64, [][]float32, error)
+	Nlist() int
 
 	// Search queries the index with the vectors in x.
 	// Returns the IDs of the k nearest neighbors for each query vector and the
@@ -104,6 +105,8 @@ type Index interface {
 	Size() uint64
 
 	cPtr() *C.FaissIndex
+
+	SetQuantizers(coarseQuantizer Index) error
 }
 
 type faissIndex struct {
@@ -286,6 +289,9 @@ func getIndicesOfKCentroidCardinalities(cardinalities []C.size_t, k int, descend
 	}
 
 	return indices[:k]
+}
+func (idx *faissIndex) Nlist() int {
+	return int(C.faiss_IndexIVF_nlist(idx.idx))
 }
 
 func (idx *faissIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []float32, centroidsToProbe int,
