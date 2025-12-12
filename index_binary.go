@@ -23,12 +23,10 @@ type BinaryIndex interface {
 	SetNProbe(nprobe int32)
 
 	Train(x []uint8) error
-	// TrainBinary(x []uint8) error
-	// AddBinary(x []uint8) error
 	AddWithIDs(x []uint8, ids []int64) error
-	// SearchBinary(x []uint8, k int64) ([]int32, []int64, error)
-	// SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) (
-	// 	[]int32, []int64, error)
+	SearchBinary(x []uint8, k int64) ([]int32, []int64, error)
+	SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) (
+		[]int32, []int64, error)
 	SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,
 		params json.RawMessage) ([]int32, []int64, error)
 }
@@ -84,32 +82,24 @@ func (idx *binaryIndexImpl) AddWithIDs(x []uint8, ids []int64) error {
 	return nil
 }
 
-// func (idx *binaryIndexImpl) AddBinary(x []uint8) error {
-// 	n := (len(x) * 8) / idx.D()
-// 	if c := C.faiss_IndexBinary_add(idx.bIdx, C.idx_t(n), (*C.uint8_t)(&x[0])); c != 0 {
-// 		return getLastError()
-// 	}
-// 	return nil
-// }
+func (idx *binaryIndexImpl) SearchBinary(x []uint8, k int64) (
+	[]int32, []int64, error) {
+	nq := (len(x) * 8) / idx.D()
+	distances := make([]int32, int64(nq)*k)
+	labels := make([]int64, int64(nq)*k)
 
-// func (idx *binaryIndexImpl) SearchBinary(x []uint8, k int64) (
-// 	[]int32, []int64, error) {
-// 	nq := (len(x) * 8) / idx.D()
-// 	distances := make([]int32, int64(nq)*k)
-// 	labels := make([]int64, int64(nq)*k)
-
-// 	if c := C.faiss_IndexBinary_search(
-// 		idx.bIdx,
-// 		C.idx_t(nq),
-// 		(*C.uint8_t)(&x[0]),
-// 		C.idx_t(k),
-// 		(*C.int32_t)(&distances[0]),
-// 		(*C.idx_t)(&labels[0]),
-// 	); c != 0 {
-// 		return nil, nil, getLastError()
-// 	}
-// 	return distances, labels, nil
-// }
+	if c := C.faiss_IndexBinary_search(
+		idx.bIdx,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		return nil, nil, getLastError()
+	}
+	return distances, labels, nil
+}
 
 func (idx *binaryIndexImpl) SearchBinaryWithIDs(x []uint8, k int64, include []int64,
 	params json.RawMessage) ([]int32, []int64, error) {
@@ -143,46 +133,46 @@ func (idx *binaryIndexImpl) SearchBinaryWithIDs(x []uint8, k int64, include []in
 	return distances, labels, nil
 }
 
-// func (idx *binaryIndexImpl) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,
-// 	params json.RawMessage) (distances []int32, labels []int64, err error) {
-// 	if len(exclude) == 0 && len(params) == 0 {
-// 		return idx.SearchBinary(x, k)
-// 	}
+func (idx *binaryIndexImpl) SearchBinaryWithoutIDs(x []uint8, k int64, exclude []int64,
+	params json.RawMessage) (distances []int32, labels []int64, err error) {
+	if len(exclude) == 0 && len(params) == 0 {
+		return idx.SearchBinary(x, k)
+	}
 
-// 	nq := (len(x) * 8) / idx.D()
-// 	distances = make([]int32, int64(nq)*k)
-// 	labels = make([]int64, int64(nq)*k)
+	nq := (len(x) * 8) / idx.D()
+	distances = make([]int32, int64(nq)*k)
+	labels = make([]int64, int64(nq)*k)
 
-// 	var selector *C.FaissIDSelector
-// 	if len(exclude) > 0 {
-// 		excludeSelector, err := NewIDSelectorNot(exclude)
-// 		if err != nil {
-// 			return nil, nil, err
-// 		}
-// 		selector = excludeSelector.Get()
-// 		defer excludeSelector.Delete()
-// 	}
+	var selector *C.FaissIDSelector
+	if len(exclude) > 0 {
+		excludeSelector, err := NewIDSelectorNot(exclude)
+		if err != nil {
+			return nil, nil, err
+		}
+		selector = excludeSelector.Get()
+		defer excludeSelector.Delete()
+	}
 
-// 	searchParams, err := NewSearchParams(idx, params, selector, nil)
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
-// 	defer searchParams.Delete()
+	searchParams, err := NewSearchParams(idx, params, selector, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
 
-// 	if c := C.faiss_IndexBinary_search_with_params(
-// 		idx.bIdx,
-// 		C.idx_t(nq),
-// 		(*C.uint8_t)(&x[0]),
-// 		C.idx_t(k),
-// 		searchParams.sp,
-// 		(*C.int32_t)(&distances[0]),
-// 		(*C.idx_t)(&labels[0]),
-// 	); c != 0 {
-// 		err = getLastError()
-// 	}
+	if c := C.faiss_IndexBinary_search_with_params(
+		idx.bIdx,
+		C.idx_t(nq),
+		(*C.uint8_t)(&x[0]),
+		C.idx_t(k),
+		searchParams.sp,
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		err = getLastError()
+	}
 
-// 	return distances, labels, err
-// }
+	return distances, labels, err
+}
 
 // Converts C.FaissIndexBinary to C.FaissIndex and returns pointer
 func (idx *binaryIndexImpl) castIndex() *C.FaissIndex {
