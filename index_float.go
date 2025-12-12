@@ -83,6 +83,8 @@ type FloatIndex interface {
 	// RangeSearch queries the index with the vectors in x.
 	// Returns all vectors with distance < radius.
 	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
+	SetNProbe(nprobe int32)
+	GetNProbe() int32
 
 	DistCompute(queryData []float32, ids []int64, k int, distances []float32) error
 }
@@ -445,6 +447,24 @@ func (idx *floatIndexImpl) RangeSearch(x []float32, radius float32) (
 		return nil, getLastError()
 	}
 	return &RangeSearchResult{rsr}, nil
+}
+
+// pass nprobe to be set as index time option for IVF indexes only.
+// varying nprobe impacts recall but with an increase in latency.
+func (idx *floatIndexImpl) SetNProbe(nprobe int32) {
+	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
+	if ivfPtr == nil {
+		return
+	}
+	C.faiss_IndexIVF_set_nprobe(ivfPtr, C.size_t(nprobe))
+}
+
+func (idx *floatIndexImpl) GetNProbe() int32 {
+	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
+	if ivfPtr == nil {
+		return 0
+	}
+	return int32(C.faiss_IndexIVF_nprobe(ivfPtr))
 }
 
 func (idx *floatIndexImpl) DistCompute(queryData []float32, ids []int64, k int, distances []float32) error {

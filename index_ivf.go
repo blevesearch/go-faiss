@@ -17,8 +17,6 @@ type IVFIndex interface {
 
 	SetDirectMap(mapType int) error
 	GetSubIndex() (Index, error)
-	SetNProbe(nprobe int32)
-	GetNProbe() int32
 }
 
 type ivfIndexImpl struct {
@@ -53,22 +51,4 @@ func (idx *ivfIndexImpl) GetSubIndex() (Index, error) {
 	}
 
 	return &indexImpl{subIdx}, nil
-}
-
-// pass nprobe to be set as index time option for IVF indexes only.
-// varying nprobe impacts recall but with an increase in latency.
-func (idx *ivfIndexImpl) SetNProbe(nprobe int32) {
-	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return
-	}
-	C.faiss_IndexIVF_set_nprobe(ivfPtr, C.size_t(nprobe))
-}
-
-func (idx *ivfIndexImpl) GetNProbe() int32 {
-	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return 0
-	}
-	return int32(C.faiss_IndexIVF_nprobe(ivfPtr))
 }
