@@ -38,9 +38,6 @@ type Index interface {
 	// Returns true if the index is an IVF index.
 	IsIVFIndex() bool
 
-	// Returns true if the index is a binary index.
-	IsBinaryIndex() bool
-
 	// MergeFrom merges another index into this index.
 	MergeFrom(other Index, add_id int64) error
 
@@ -85,13 +82,6 @@ func (idx *indexImpl) MetricType() int {
 
 func (idx *indexImpl) IsIVFIndex() bool {
 	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx == nil {
-		return false
-	}
-	return true
-}
-
-func (idx *indexImpl) IsBinaryIndex() bool {
-	if binIdx := C.faiss_IndexBinary_cast(idx.cPtr()); binIdx == nil {
 		return false
 	}
 	return true

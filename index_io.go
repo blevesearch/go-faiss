@@ -124,7 +124,7 @@ func ReadIndexFromBuffer(buf []byte, ioflags int, typ IndexType) (Index, error) 
 	switch typ {
 	case FloatIndexType:
 		// the idx var has C.FaissIndex within the struct which is nil as of now.
-		var idx indexImpl
+		var idx floatIndexImpl
 		if c := C.faiss_read_index_buf(ptr,
 			size,
 			C.int(ioflags),
