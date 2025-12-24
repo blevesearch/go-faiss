@@ -113,3 +113,18 @@ func NewSearchParams(idx Index, params json.RawMessage, selector Selector,
 	}
 	return rv, nil
 }
+
+// Returns a standard SearchParams object without any special settings with
+// the provided selector. The returned SearchParams object is allocated,
+// thus caller must clean up the object by invoking Delete() method.
+func NewStandardSearchParams(selector Selector) (*SearchParams, error) {
+	var sel *C.FaissIDSelector
+	if selector != nil {
+		sel = selector.Get()
+	}
+	rv := &SearchParams{}
+	if c := C.faiss_SearchParameters_new(&rv.sp, sel); c != 0 {
+		return nil, fmt.Errorf("failed to create faiss search params")
+	}
+	return rv, nil
+}

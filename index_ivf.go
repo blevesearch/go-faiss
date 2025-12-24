@@ -52,10 +52,11 @@ func (idx *IndexImpl) SetNProbe(nprobe int32) {
 	C.faiss_IndexIVF_set_nprobe(ivfPtr, C.size_t(nprobe))
 }
 
-func (idx *IndexImpl) GetNProbe() int32 {
+func (idx *IndexImpl) IVFParams() (nprobe, nlist uint64) {
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
-		return 0
+		return 0, 0
 	}
-	return int32(C.faiss_IndexIVF_nprobe(ivfPtr))
+	return uint64(C.faiss_IndexIVF_nprobe(ivfPtr)),
+		uint64(C.faiss_IndexIVF_nlist(ivfPtr))
 }
