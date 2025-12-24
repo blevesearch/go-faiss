@@ -74,10 +74,10 @@ type Index interface {
 	// corresponding distances.
 	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
 
-	SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) (distances []float32,
+	SearchWithoutIDs(x []float32, k int64, exclude Selector, params json.RawMessage) (distances []float32,
 		labels []int64, err error)
 
-	SearchWithIDs(x []float32, k int64, include []int64, params json.RawMessage) (distances []float32,
+	SearchWithIDs(x []float32, k int64, include Selector, params json.RawMessage) (distances []float32,
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
@@ -296,7 +296,7 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(selector Selector,
 		Nprobe: minEligibleCentroids,
 	}
 
-	searchParams, err := NewSearchParams(idx, params, selector.Get(), tempParams)
+	searchParams, err := NewSearchParams(idx, params, selector, tempParams)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -361,49 +361,44 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 	return
 }
 
-func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude []int64, params json.RawMessage) (
+// SearchWithoutIDs performs a search excluding the IDs specified in the exclude selector.
+func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude Selector, params json.RawMessage) (
 	distances []float32, labels []int64, err error,
 ) {
-	if params == nil && len(exclude) == 0 {
+	// If no exclude selector and no additional parameters are provided,
+	// perform a standard search.
+	if params == nil && exclude == nil {
 		return idx.Search(x, k)
 	}
-
-	var selector *C.FaissIDSelector
-	if len(exclude) > 0 {
-		excludeSelector, err := NewIDSelectorNot(exclude)
-		if err != nil {
-			return nil, nil, err
-		}
-		selector = excludeSelector.Get()
-		defer excludeSelector.Delete()
-	}
-
-	searchParams, err := NewSearchParams(idx, params, selector, nil)
+	// Create search parameters with the exclude selector.
+	searchParams, err := NewSearchParams(idx, params, exclude, nil)
 	if err != nil {
 		return nil, nil, err
 	}
+	// cleanup the searchParams after use
 	defer searchParams.Delete()
-
+	// Perform the search with the specified parameters.
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
-
 	return
 }
 
-func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include []int64,
+// SearchWithIDs performs a search including only the IDs specified in the include selector.
+func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include Selector,
 	params json.RawMessage) (distances []float32, labels []int64, err error,
 ) {
-	includeSelector, err := NewIDSelectorBatch(include)
+	// If no include selector is provided, we have no results to return.
+	// return an error indicating that the SearchWithIDs requires a valid selector.
+	if include == nil {
+		return nil, nil, fmt.Errorf("SearchWithIDs requires a valid include selector")
+	}
+	// Create search parameters with the include selector.
+	searchParams, err := NewSearchParams(idx, params, include, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer includeSelector.Delete()
-
-	searchParams, err := NewSearchParams(idx, params, includeSelector.Get(), nil)
-	if err != nil {
-		return nil, nil, err
-	}
+	// cleanup the searchParams after use
 	defer searchParams.Delete()
-
+	// Perform the search with the specified parameters.
 	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
 	return
 }
