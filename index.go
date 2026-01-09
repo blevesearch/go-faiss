@@ -167,7 +167,7 @@ func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors Sel
 	// Calling the C function to populate listCount
 	// with the count of vectors per cluster, considering only
 	// the vectors specified in the include selector.
-	if c := C.faiss_count_ivf_list_vectors(
+	if c := C.faiss_ivf_list_vector_count(
 		ivfPtr,
 		(*C.idx_t)(unsafe.Pointer(&listCount[0])),
 		C.size_t(nlist),
