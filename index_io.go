@@ -141,6 +141,7 @@ func ReadIndexFromBuffer(buf []byte, ioflags int, typ IndexType) (Index, error) 
 			return nil, getLastError()
 		}
 		rv = &bIdx
+		bIdx.idx = bIdx.castIndex()
 	}
 
 	ptr = nil

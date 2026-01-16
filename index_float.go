@@ -93,6 +93,14 @@ type floatIndexImpl struct {
 	indexImpl
 }
 
+type FloatIndexClass int
+
+const (
+	FloatFlat FloatIndexClass = iota
+	FloatIVF
+	FloatRabitq
+)
+
 func (idx *floatIndexImpl) Train(x []float32) error {
 	n := len(x) / idx.D()
 	if c := C.faiss_Index_train(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {

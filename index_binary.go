@@ -23,6 +23,7 @@ type BinaryIndex interface {
 	SetNProbe(nprobe int32)
 
 	Train(x []uint8) error
+	Add(x []uint8) error
 	AddWithIDs(x []uint8, ids []int64) error
 	SearchBinary(x []uint8, k int64) ([]int32, []int64, error)
 	SearchBinaryWithIDs(x []uint8, k int64, include []int64, params json.RawMessage) (
@@ -61,12 +62,21 @@ func (idx *binaryIndexImpl) SetNProbe(nprobe int32) {
 	if ivfPtrBinary == nil {
 		return
 	}
-	C.faiss_IndexBinaryIVF_set_nprobe(idx.bIdx, C.size_t(nprobe))
+	C.faiss_IndexBinaryIVF_set_nprobe(ivfPtrBinary, C.size_t(nprobe))
 }
 
 func (idx *binaryIndexImpl) Train(x []uint8) error {
 	n := (len(x) * 8) / idx.D()
 	if c := C.faiss_IndexBinary_train(idx.bIdx, C.idx_t(n),
+		(*C.uint8_t)(&x[0])); c != 0 {
+		return getLastError()
+	}
+	return nil
+}
+
+func (idx *binaryIndexImpl) Add(x []uint8) error {
+	n := (len(x) * 8) / idx.D()
+	if c := C.faiss_IndexBinary_add(idx.bIdx, C.idx_t(n),
 		(*C.uint8_t)(&x[0])); c != 0 {
 		return getLastError()
 	}

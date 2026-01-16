@@ -128,7 +128,7 @@ func (idx *indexImpl) cPtr() *C.FaissIndex {
 
 // IndexFactory builds a composite index.
 // description is a comma-separated list of components.
-func IndexFactory(d int, description string, metric int, indexType IndexType) (Index, error) {
+func IndexFactory(d int, description string, metric int, indexType IndexType, indexClass FloatIndexClass) (Index, error) {
 
 	var cDescription *C.char
 	if description != "" {
@@ -139,12 +139,28 @@ func IndexFactory(d int, description string, metric int, indexType IndexType) (I
 	var rv Index
 	switch indexType {
 	case FloatIndexType:
-		var idx floatIndexImpl
-		c := C.faiss_index_factory(&idx.idx, C.int(d), cDescription, C.FaissMetricType(metric))
-		if c != 0 {
-			return nil, getLastError()
+		switch indexClass {
+		case FloatIVF:
+			var idx ivfIndexImpl
+			c := C.faiss_index_factory(&idx.idx, C.int(d), cDescription, C.FaissMetricType(metric))
+			if c != 0 {
+				return nil, getLastError()
+			}
+			rv = &idx
+		case FloatFlat:
+			var idx flatIndexImpl
+			if c := C.faiss_index_factory(&idx.idx, C.int(d), cDescription, C.FaissMetricType(metric)); c != 0 {
+				return nil, getLastError()
+			}
+			rv = &idx
+		case FloatRabitq:
+			var idx ivfIndexImpl
+			c := C.faiss_index_factory(&idx.idx, C.int(d), cDescription, C.FaissMetricType(metric))
+			if c != 0 {
+				return nil, getLastError()
+			}
+			rv = &idx
 		}
-		rv = &idx
 	case BinaryIndexType:
 		var idx binaryIndexImpl
 		if c := C.faiss_index_binary_factory(&idx.bIdx, C.int(d), cDescription); c != 0 {
