@@ -87,6 +87,8 @@ type Index interface {
 	// Returns all vectors with distance < radius.
 	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
 
+	DistCompute(x []float32, labels []int64) ([]float32, error)
+
 	// Reset removes all vectors from the index.
 	Reset() error
 
@@ -490,6 +492,16 @@ func (idx *faissIndex) RangeSearch(x []float32, radius float32) (
 		return nil, getLastError()
 	}
 	return &RangeSearchResult{rsr}, nil
+}
+
+func (idx *faissIndex) DistCompute(queryData []float32, ids []int64) ([]float32, error) {
+	distances := make([]float32, len(ids))
+	if c := C.faiss_Index_dist_compute(idx.idx, (*C.float)(&queryData[0]),
+		(*C.idx_t)(&ids[0]), (C.size_t)(len(ids)), (*C.float)(&distances[0])); c != 0 {
+		return nil, getLastError()
+	}
+
+	return distances, nil
 }
 
 func (idx *faissIndex) Reset() error {
