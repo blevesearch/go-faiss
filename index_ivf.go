@@ -60,3 +60,26 @@ func (idx *IndexImpl) IVFParams() (nprobe, nlist int) {
 	return int(C.faiss_IndexIVF_nprobe(ivfPtr)),
 		int(C.faiss_IndexIVF_nlist(ivfPtr))
 }
+
+func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
+	ivfPtr := C.faiss_IndexIVF_cast(idx.idx)
+	if ivfPtr == nil {
+		return fmt.Errorf("index is not of ivf type")
+	}
+
+	srcIndexPtr := srcIndex.cPtr()
+	if srcIndexPtr == nil {
+		return fmt.Errorf("coarse quantizer is not valid")
+	}
+
+	err := C.faiss_Set_coarse_quantizers(ivfPtr, srcIndexPtr)
+	if err != 0 {
+		return fmt.Errorf("couldn't set the coarse quantizer")
+	}
+
+	return nil
+}
+
+func (idx *IndexImpl) SetQuantizers(srcIndex Index) error {
+	return idx.Index.SetQuantizers(srcIndex)
+}
