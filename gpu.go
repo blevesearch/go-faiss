@@ -14,6 +14,9 @@ import (
 	"unsafe"
 )
 
+// process level locks to ensure GPU access is serialized across multiple threads,
+// as Faiss GPU resources are not thread safe. This is a temporary solution until we have a
+// more robust GPU resource management strategy in place.
 var (
 	GPUCount int
 	GPULocks []sync.Mutex
@@ -57,11 +60,18 @@ func (g *GPUIndexImpl) Close() {
 	}
 }
 
-// CloneToGPU transfers a CPU index to the specified GPU device
-func CloneToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
-	if index == nil {
+// CloneToGPU transfers a CPU index to an avilable GPU
+func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
+	if cpuIndex == nil {
 		return nil, errors.New("index cannot be nil")
 	}
+	// NO GPUs available, return an error
+	if GPUCount == 0 {
+		return nil, errors.New("no GPU devices available")
+	}
+	// TODO: GK
+	// We will always assume only 1 GPU device, need to support N GPUs
+	device := 0
 	if device < 0 || device >= GPUCount {
 		return nil, fmt.Errorf("invalid GPU device %d", device)
 	}
@@ -92,4 +102,16 @@ func CloneToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
 		Index:       &IndexImpl{idx},
 		gpuResource: gpuResource,
 	}, nil
+}
+
+func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
+	var cpuIdx *C.FaissIndex
+	code := C.faiss_index_gpu_to_cpu(
+		gpuIndex.cPtr(),
+		&cpuIdx,
+	)
+	if code != 0 {
+		return nil, fmt.Errorf("failed to transfer index to CPU: %v", getLastError())
+	}
+	return &IndexImpl{&faissIndex{idx: cpuIdx}}, nil
 }
