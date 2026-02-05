@@ -1,0 +1,117 @@
+package faiss
+
+/*
+#include <stddef.h>
+#include <faiss/c_api/gpu/StandardGpuResources_c.h>
+#include <faiss/c_api/gpu/GpuAutoTune_c.h>
+#include <faiss/c_api/gpu/DeviceUtils_c.h>
+*/
+import "C"
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"unsafe"
+)
+
+// process level locks to ensure GPU access is serialized across multiple threads,
+// as Faiss GPU resources are not thread safe. This is a temporary solution until we have a
+// more robust GPU resource management strategy in place.
+var (
+	GPUCount int
+	GPULocks []sync.Mutex
+)
+
+func init() {
+	var err error
+	GPUCount, err = NumGPUs()
+	if err != nil || GPUCount <= 0 {
+		GPUCount = 0
+	}
+	GPULocks = make([]sync.Mutex, GPUCount)
+}
+
+// NumGPUs returns the number of available GPU devices.
+func NumGPUs() (int, error) {
+	var rv C.int
+	c := C.faiss_get_num_gpus(&rv)
+	if c != 0 {
+		return 0, fmt.Errorf("error getting number of GPUs, err: %v", getLastError())
+	}
+	return int(rv), nil
+}
+
+type GPUIndexImpl struct {
+	Index
+	gpuResource *C.FaissStandardGpuResources
+}
+
+func (g *GPUIndexImpl) Close() {
+	if g == nil {
+		return
+	}
+	if g.Index != nil {
+		g.Index.Close()
+		g.Index = nil
+	}
+	if g.gpuResource != nil {
+		C.faiss_StandardGpuResources_free(g.gpuResource)
+		g.gpuResource = nil
+	}
+}
+
+// CloneToGPU transfers a CPU index to an avilable GPU
+func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
+	if cpuIndex == nil {
+		return nil, errors.New("index cannot be nil")
+	}
+	// NO GPUs available, return an error
+	if GPUCount == 0 {
+		return nil, errors.New("no GPU devices available")
+	}
+	// TODO: GK
+	// We will always assume only 1 GPU device, need to support N GPUs
+	device := 0
+	if device < 0 || device >= GPUCount {
+		return nil, fmt.Errorf("invalid GPU device %d", device)
+	}
+	GPULocks[device].Lock()
+	defer GPULocks[device].Unlock()
+	var gpuResource *C.FaissStandardGpuResources
+	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
+		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
+	}
+
+	var gpuIdx *C.FaissGpuIndex
+	code := C.faiss_index_cpu_to_gpu(
+		gpuResource,
+		C.int(device),
+		index.cPtr(),
+		&gpuIdx,
+	)
+	if code != 0 {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d, err: %v", device, code, getLastError())
+	}
+
+	idx := &faissIndex{
+		idx: (*C.FaissIndex)(unsafe.Pointer(gpuIdx)),
+	}
+
+	return &GPUIndexImpl{
+		Index:       &IndexImpl{idx},
+		gpuResource: gpuResource,
+	}, nil
+}
+
+func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
+	var cpuIdx *C.FaissIndex
+	code := C.faiss_index_gpu_to_cpu(
+		gpuIndex.cPtr(),
+		&cpuIdx,
+	)
+	if code != 0 {
+		return nil, fmt.Errorf("failed to transfer index to CPU: %v", getLastError())
+	}
+	return &IndexImpl{&faissIndex{idx: cpuIdx}}, nil
+}

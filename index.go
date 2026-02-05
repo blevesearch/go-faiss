@@ -100,6 +100,9 @@ type Index interface {
 	// consults the C++ side to get the size of the index
 	Size() uint64
 
+	// Applicable only to IVF indexes: returns the IVF parameters of the index, such as nlist, nprobe, etc.
+	IVFParams() (nprobe, nlist int)
+
 	cPtr() *C.FaissIndex
 }
 
@@ -531,6 +534,15 @@ func (idx *faissIndex) searchWithParams(x []float32, k int64, searchParams *C.Fa
 	}
 
 	return
+}
+
+func (idx *faissIndex) IVFParams() (nprobe, nlist int) {
+	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
+	if ivfPtr == nil {
+		return 0, 0
+	}
+	return int(C.faiss_IndexIVF_nprobe(ivfPtr)),
+		int(C.faiss_IndexIVF_nlist(ivfPtr))
 }
 
 // -----------------------------------------------------------------------------
