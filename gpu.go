@@ -33,7 +33,7 @@ func NumGPUs() (int, error) {
 	var rv C.int
 	c := C.faiss_get_num_gpus(&rv)
 	if c != 0 {
-		return 0, errors.New("error getting number of GPUs")
+		return 0, fmt.Errorf("error getting number of GPUs, err: %v", getLastError())
 	}
 	return int(rv), nil
 }
@@ -42,7 +42,7 @@ func FreeMemory(device int) (uint64, error) {
 	var freeBytes C.size_t
 	c := C.faiss_get_free_memory(C.int(device), &freeBytes)
 	if c != 0 {
-		return 0, fmt.Errorf("error getting free memory for device %d", device)
+		return 0, fmt.Errorf("error getting free memory for device %d, err: %v", device, getLastError())
 	}
 	return uint64(freeBytes), nil
 }
@@ -78,7 +78,7 @@ func CloneToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
 	defer GPULocks[device].Unlock()
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
-		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d", code)
+		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
 	}
 
 	var gpuIdx *C.FaissGpuIndex
@@ -90,7 +90,7 @@ func CloneToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
 	)
 	if code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d", device, code)
+		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d, err: %v", device, code, getLastError())
 	}
 
 	idx := &faissIndex{
