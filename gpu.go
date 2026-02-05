@@ -10,8 +10,23 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"unsafe"
 )
+
+var (
+	GPUCount int
+	GPULocks []sync.Mutex
+)
+
+func init() {
+	var err error
+	GPUCount, err = NumGPUs()
+	if err != nil || GPUCount <= 0 {
+		GPUCount = 0
+	}
+	GPULocks = make([]sync.Mutex, GPUCount)
+}
 
 // NumGPUs returns the number of available GPU devices.
 func NumGPUs() (int, error) {
@@ -51,11 +66,16 @@ func (g *GPUIndexImpl) Close() {
 	}
 }
 
-// TransferToGPU transfers a CPU index to the specified GPU device.
-func TransferToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
+// CloneToGPU transfers a CPU index to the specified GPU device
+func CloneToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
 	if index == nil {
 		return nil, errors.New("index cannot be nil")
 	}
+	if device < 0 || device >= GPUCount {
+		return nil, fmt.Errorf("invalid GPU device %d", device)
+	}
+	GPULocks[device].Lock()
+	defer GPULocks[device].Unlock()
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d", code)
@@ -81,21 +101,4 @@ func TransferToGPU(index *IndexImpl, device int) (*GPUIndexImpl, error) {
 		Index:       &IndexImpl{idx},
 		gpuResource: gpuResource,
 	}, nil
-}
-
-// TransferToCPU transfers a GPU index back to CPU memory.
-func TransferToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
-	if gpuIndex == nil {
-		return nil, errors.New("gpuIndex cannot be nil")
-	}
-	var cpuIndex *C.FaissIndex
-	if code := C.faiss_index_gpu_to_cpu(gpuIndex.cPtr(), &cpuIndex); code != 0 {
-		return nil, fmt.Errorf("failed to transfer index to CPU: error code %d", code)
-	}
-
-	idx := &faissIndex{
-		idx: cpuIndex,
-	}
-
-	return &IndexImpl{idx}, nil
 }
