@@ -32,7 +32,7 @@ type BinaryIndex interface {
 	IsIVFIndex() bool
 
 	// IVFParams returns the nlist and nprobe parameters for IVF indexes
-	IVFParams() (nlist int, nprobe int)
+	IVFParams() (nprobe int, nlist int)
 
 	// trains the index on a representative set of vectors
 	Train(xb []uint8) error
@@ -120,7 +120,7 @@ func (b *faissBinaryIndex) IsIVFIndex() bool {
 	return ivfPtrBinary != nil
 }
 
-func (b *faissBinaryIndex) IVFParams() (nlist int, nprobe int) {
+func (b *faissBinaryIndex) IVFParams() (nprobe int, nlist int) {
 	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
@@ -128,7 +128,7 @@ func (b *faissBinaryIndex) IVFParams() (nlist int, nprobe int) {
 	}
 	nlist = int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
 	nprobe = int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
-	return nlist, nprobe
+	return nprobe, nlist
 }
 
 func (b *faissBinaryIndex) Train(x []uint8) error {
