@@ -155,7 +155,6 @@ func ReadBinaryIndexFromBuffer(buf []byte, ioflags int) (*BinaryIndexImpl, error
 		&bIdx.bIdx); c != 0 {
 		return nil, getLastError()
 	}
-	bIdx.fIdx = bIdx.castIndex()
 
 	return &BinaryIndexImpl{&bIdx}, nil
 }

@@ -75,44 +75,54 @@ func NewSearchParams(idx Index, params json.RawMessage, selector Selector,
 			return nil, fmt.Errorf("failed to create faiss search params")
 		}
 	} else {
-		var nlist, nprobe, nvecs, maxCodes int
-		nlist = int(C.faiss_IndexIVF_nlist(ivfIdx))
-		nprobe = int(C.faiss_IndexIVF_nprobe(ivfIdx))
-		nvecs = int(C.faiss_Index_ntotal(idx.cPtr()))
-		if defaultParams != nil {
-			if defaultParams.Nlist > 0 {
-				nlist = defaultParams.Nlist
-			}
-			if defaultParams.Nprobe > 0 {
-				nprobe = defaultParams.Nprobe
-			}
-		}
-		var ivfParams searchParamsIVF
-		if len(params) > 0 {
-			if err := json.Unmarshal(params, &ivfParams); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal IVF search params, "+
-					"err:%v", err)
-			}
-			if err := ivfParams.Validate(); err != nil {
-				return nil, err
-			}
-		}
-		if ivfParams.NprobePct > 0 {
-			nprobe = max(int(float32(nlist)*(ivfParams.NprobePct/100)), 1)
-		}
-		if ivfParams.MaxCodesPct > 0 {
-			maxCodes = int(float32(nvecs) * (ivfParams.MaxCodesPct / 100))
-		} // else, maxCodes will be set to the default value of 0, which means no limit
-		if c := C.faiss_SearchParametersIVF_new_with(
-			&rv.sp,
-			sel,
-			C.size_t(nprobe),
-			C.size_t(maxCodes),
-		); c != 0 {
-			return nil, fmt.Errorf("failed to create faiss IVF search params")
+		nlist := int(C.faiss_IndexIVF_nlist(ivfIdx))
+		nprobe := int(C.faiss_IndexIVF_nprobe(ivfIdx))
+		nvecs := int(C.faiss_Index_ntotal(idx.cPtr()))
+
+		if err := buildSearchParams(rv, params, defaultParams, nlist, nprobe, nvecs, sel); err != nil {
+			return nil, err
 		}
 	}
 	return rv, nil
+}
+
+func buildSearchParams(sp *SearchParams, params json.RawMessage, defaultParams *defaultSearchParamsIVF,
+	nlist, nprobe, nvecs int, sel *C.FaissIDSelector) error {
+	if defaultParams != nil {
+		if defaultParams.Nlist > 0 {
+			nlist = defaultParams.Nlist
+		}
+		if defaultParams.Nprobe > 0 {
+			nprobe = defaultParams.Nprobe
+		}
+	}
+	var ivfParams searchParamsIVF
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &ivfParams); err != nil {
+			return fmt.Errorf("failed to unmarshal IVF search params, "+
+				"err:%v", err)
+		}
+		if err := ivfParams.Validate(); err != nil {
+			return err
+		}
+	}
+	if ivfParams.NprobePct > 0 {
+		nprobe = max(int(float32(nlist)*(ivfParams.NprobePct/100)), 1)
+	}
+	var maxCodes int
+	if ivfParams.MaxCodesPct > 0 {
+		maxCodes = int(float32(nvecs) * (ivfParams.MaxCodesPct / 100))
+	} // else, maxCodes will be set to the default value of 0, which means no limit
+	if c := C.faiss_SearchParametersIVF_new_with(
+		&sp.sp,
+		sel,
+		C.size_t(nprobe),
+		C.size_t(maxCodes),
+	); c != 0 {
+		return fmt.Errorf("failed to create faiss IVF search params")
+	}
+
+	return nil
 }
 
 // Returns a standard SearchParams object without any special settings with
@@ -145,44 +155,12 @@ func NewBinarySearchParams(idx BinaryIndex, params json.RawMessage, selector Sel
 			return nil, fmt.Errorf("failed to create faiss search params")
 		}
 	} else {
-		var nlist, nprobe, nvecs, maxCodes int
-		nlist = int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
-		nprobe = int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
-		nvecs = int(C.faiss_IndexBinary_ntotal(idx.bPtr()))
+		nlist := int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
+		nprobe := int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
+		nvecs := int(C.faiss_IndexBinary_ntotal(idx.bPtr()))
 
-		if defaultParams != nil {
-			if defaultParams.Nlist > 0 {
-				nlist = defaultParams.Nlist
-			}
-			if defaultParams.Nprobe > 0 {
-				nprobe = defaultParams.Nprobe
-			}
-		}
-
-		var ivfParams searchParamsIVF
-		if len(params) > 0 {
-			if err := json.Unmarshal(params, &ivfParams); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal IVF search params, "+
-					"err:%v", err)
-			}
-			if err := ivfParams.Validate(); err != nil {
-				return nil, err
-			}
-		}
-		if ivfParams.NprobePct > 0 {
-			nprobe = max(int(float32(nlist)*(ivfParams.NprobePct/100)), 1)
-		}
-		if ivfParams.MaxCodesPct > 0 {
-			maxCodes = int(float32(nvecs) * (ivfParams.MaxCodesPct / 100))
-		} // else, maxCodes will be set to the default value of 0, which means no limit
-
-		if c := C.faiss_SearchParametersIVF_new_with(
-			&rv.sp,
-			sel,
-			C.size_t(nprobe),
-			C.size_t(maxCodes),
-		); c != 0 {
-			return nil, fmt.Errorf("failed to create faiss IVF search params")
+		if err := buildSearchParams(rv, params, defaultParams, nlist, nprobe, nvecs, sel); err != nil {
+			return nil, err
 		}
 	}
 

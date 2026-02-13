@@ -20,12 +20,18 @@ type BinaryIndex interface {
 
 	SetDirectMap(maptype int) error
 	SetNProbe(nprobe int32)
+	IsIVFIndex() bool
+	IVFParams() (nlist int, nprobe int)
 
 	Train(xb []uint8) error
 	Add(xb []uint8) error
 
 	Search(xb []uint8, k int64) (distances []int32, labels []int64, err error)
 	SearchWithSelector(xb []uint8, k int64, selector Selector, params json.RawMessage) (distances []int32, labels []int64, err error)
+	ObtainClusterVectorCountsFromIVFIndex(include Selector, nlist int) ([]int64, error)
+	ObtainClustersWithDistancesFromIVFIndex(xb []uint8, includedCentroids Selector, numCentroids int64) ([]int64, []int32, error)
+	SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []int32, centroidsToProbe int,
+		xb []uint8, k int64, include Selector, params json.RawMessage) ([]int32, []int64, error)
 
 	Size() uint64
 	Close()
@@ -34,7 +40,6 @@ type BinaryIndex interface {
 }
 
 type faissBinaryIndex struct {
-	fIdx *C.FaissIndex
 	bIdx *C.FaissIndexBinary
 }
 
@@ -43,22 +48,21 @@ func (b *faissBinaryIndex) bPtr() *C.FaissIndexBinary {
 }
 
 func (b *faissBinaryIndex) D() int {
-	return int(C.faiss_Index_d(b.fIdx))
+	return int(C.faiss_IndexBinary_d(b.bIdx))
 }
 
 func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
-	if ivfPtrBinary != nil {
-		if c := C.faiss_IndexBinaryIVF_set_direct_map(
-			ivfPtrBinary,
-			C.int(mapType),
-		); c != 0 {
-			err = getLastError()
-		}
-		return err
+	if ivfPtrBinary == nil {
+		return fmt.Errorf("index is not of ivf type")
 	}
-
-	return fmt.Errorf("unable to set direct map")
+	if c := C.faiss_IndexBinaryIVF_set_direct_map(
+		ivfPtrBinary,
+		C.int(mapType),
+	); c != 0 {
+		err = getLastError()
+	}
+	return err
 }
 
 func (b *faissBinaryIndex) SetNProbe(nprobe int32) {
@@ -67,6 +71,21 @@ func (b *faissBinaryIndex) SetNProbe(nprobe int32) {
 		return
 	}
 	C.faiss_IndexBinaryIVF_set_nprobe(ivfPtrBinary, C.size_t(nprobe))
+}
+
+func (b *faissBinaryIndex) IsIVFIndex() bool {
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	return ivfPtrBinary != nil
+}
+
+func (b *faissBinaryIndex) IVFParams() (nlist int, nprobe int) {
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	if ivfPtrBinary == nil {
+		return 0, 0
+	}
+	nlist = int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
+	nprobe = int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
+	return nlist, nprobe
 }
 
 func (b *faissBinaryIndex) Train(x []uint8) error {
@@ -132,17 +151,136 @@ func (b *faissBinaryIndex) SearchWithSelector(xb []uint8, k int64, selector Sele
 	return distances, labels, nil
 }
 
+func (b *faissBinaryIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors Selector, nlist int) ([]int64, error) {
+	// Applicable only to IVF indexes
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	if ivfPtrBinary == nil {
+		return nil, fmt.Errorf("index is not of ivf type")
+	}
+	// Creating a slice to hold the count of vectors per cluster
+	// Since we have nlist clusters, we create a slice of size nlist
+	// listCount[i] will hold the count of vectors in cluster i
+	listCount := make([]int64, nlist)
+	// Creating a FAISS selector based on the include bitmap.
+	params, err := NewStandardSearchParams(includedVectors)
+	if err != nil {
+		return nil, err
+	}
+	defer params.Delete()
+	// Calling the C function to populate listCount
+	// with the count of vectors per cluster, considering only
+	// the vectors specified in the include selector.
+	if c := C.faiss_binary_ivf_list_vector_count(
+		ivfPtrBinary,
+		(*C.idx_t)(unsafe.Pointer(&listCount[0])),
+		C.size_t(nlist),
+		params.sp,
+	); c != 0 {
+		return nil, getLastError()
+	}
+	return listCount, nil
+}
+
+func (b *faissBinaryIndex) ObtainClustersWithDistancesFromIVFIndex(xb []uint8, includedCentroids Selector, numCentroids int64) ([]int64, []int32, error) {
+	// Applicable only to IVF indexes
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	if ivfPtrBinary == nil {
+		return nil, nil, fmt.Errorf("index is not of ivf type")
+	}
+	params, err := NewStandardSearchParams(includedCentroids)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer params.Delete()
+
+	// Populate these with the centroids and their distances.
+	centroids := make([]int64, numCentroids)
+	centroidDistances := make([]int32, numCentroids)
+
+	n := (len(xb) * 8) / b.D()
+
+	if c := C.faiss_Search_binary_closest_eligible_centroids(
+		ivfPtrBinary,
+		(C.idx_t)(n),
+		(*C.uint8_t)(&xb[0]),
+		(C.idx_t)(numCentroids),
+		(*C.int32_t)(&centroidDistances[0]),
+		(*C.idx_t)(&centroids[0]),
+		params.sp,
+	); c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	return centroids, centroidDistances, nil
+}
+
+func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []int32, centroidsToProbe int,
+	xb []uint8, k int64, include Selector, params json.RawMessage) ([]int32, []int64, error) {
+	// Applicable only to IVF indexes
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	if ivfPtrBinary == nil {
+		return nil, nil, fmt.Errorf("index is not of ivf type")
+	}
+	// If no include selector is provided, we have no results to return.
+	// return an error indicating that the SearchClustersFromIVFIndex requires a valid selector.
+	if include == nil {
+		return nil, nil, fmt.Errorf("SearchClustersFromIVFIndex requires a valid include selector")
+	}
+	// create a temporary search params object to set nprobe, this will override
+	// the nprobe and the nlist set at index time, this will allow the search to
+	// probe only the clusters specified in eligibleCentroidIDs
+	tempParams := &defaultSearchParamsIVF{
+		// Nlist is set to the number of eligible centroids, which will override
+		// the nlist set at index time.
+		Nlist: len(eligibleCentroidIDs),
+		// Have to override nprobe so that more clusters will be searched for this
+		// query, if required.
+		Nprobe: centroidsToProbe,
+	}
+	searchParams, err := NewBinarySearchParams(b, params, include, tempParams)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
+	n := (len(xb) * 8) / b.D()
+
+	distances := make([]int32, int64(n)*k)
+	labels := make([]int64, int64(n)*k)
+	// Adjust the slices to match the effective nprobe set in searchParams, as the input
+	// parameters may have different nprobe value, which will be a hard override, over the
+	// centroidsToProbe value passed to this function.
+	// If the effective nprobe is greater than the length of eligibleCentroidIDs,
+	// we limit it to the length of eligibleCentroidIDs.
+	effectiveNprobe := min(getNProbeFromSearchParams(searchParams), int32(len(eligibleCentroidIDs)))
+	eligibleCentroidIDs = eligibleCentroidIDs[:effectiveNprobe]
+	centroidDis = centroidDis[:effectiveNprobe]
+
+	if c := C.faiss_IndexBinaryIVF_search_preassigned_with_params(
+		ivfPtrBinary,
+		(C.idx_t)(n),
+		(*C.uint8_t)(&xb[0]),
+		(C.idx_t)(k),
+		(*C.idx_t)(&eligibleCentroidIDs[0]),
+		(*C.int32_t)(&centroidDis[0]),
+		(*C.int32_t)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+		(C.int)(0),
+		searchParams.sp,
+	); c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	return distances, labels, nil
+}
+
 func (b *faissBinaryIndex) Size() uint64 {
-	size := C.faiss_Index_size(b.fIdx)
+	size := C.faiss_IndexBinary_size(b.bIdx)
 	return uint64(size)
 }
 
 func (idx *faissBinaryIndex) Close() {
-	C.faiss_Index_free(idx.fIdx)
-}
-
-func (idx *faissBinaryIndex) castIndex() *C.FaissIndex {
-	return (*C.FaissIndex)(unsafe.Pointer(idx.bIdx))
+	C.faiss_IndexBinary_free(idx.bIdx)
 }
 
 type BinaryIndexImpl struct {
@@ -159,7 +297,6 @@ func BinaryIndexFactory(dims int, description string) (*BinaryIndexImpl, error) 
 	if c := C.faiss_index_binary_factory(&idx.bIdx, C.int(dims), cDescription); c != 0 {
 		return nil, getLastError()
 	}
-	idx.fIdx = idx.castIndex()
 
 	return &BinaryIndexImpl{&idx}, nil
 }
