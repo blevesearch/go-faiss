@@ -16,24 +16,64 @@ import (
 )
 
 type BinaryIndex interface {
+	// D returns the dimension of the indexed vectors.
 	D() int
 
+	// set the direct map type for IVF indexes.
+	// 0 for No Map
+	// 1 for Array
+	// 2 for Hash
 	SetDirectMap(maptype int) error
+
+	// set the number of probes for IVF indexes
 	SetNProbe(nprobe int32)
+
+	// returns true if the underlying index is an IVF index
 	IsIVFIndex() bool
+
+	// IVFParams returns the nlist and nprobe parameters for IVF indexes
 	IVFParams() (nlist int, nprobe int)
 
+	// trains the index on a representative set of vectors
 	Train(xb []uint8) error
+
+	// adds vectors to the index
 	Add(xb []uint8) error
 
+	// queries the index with the vectors in xb
+	// returns the IDs of the k nearest neighbors for each query vector and
+	// their corresponding distances
 	Search(xb []uint8, k int64) (distances []int32, labels []int64, err error)
-	SearchWithSelector(xb []uint8, k int64, selector Selector, params json.RawMessage) (distances []int32, labels []int64, err error)
-	ObtainClusterVectorCountsFromIVFIndex(include Selector, nlist int) ([]int64, error)
-	ObtainClustersWithDistancesFromIVFIndex(xb []uint8, includedCentroids Selector, numCentroids int64) ([]int64, []int32, error)
-	SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []int32, centroidsToProbe int,
-		xb []uint8, k int64, include Selector, params json.RawMessage) ([]int32, []int64, error)
 
+	// similar to Search, but allows for a selector to specify which vectors
+	// to include in the search, and additional search parameters to be passed
+	// as a JSON object.
+	SearchWithSelector(xb []uint8, k int64, selector Selector,
+		params json.RawMessage) (distances []int32, labels []int64, err error)
+
+	// returns a slice where each index corresponds to a cluster in an IVF
+	// index, and the value at each index is the count of vectors in that
+	// cluster, considering only the vectors specified in the include selector.
+	ObtainClusterVectorCountsFromIVFIndex(include Selector, nlist int) (
+		[]int64, error)
+
+	// returns the IDs and distances of the closest numCentroids centroids to
+	// the query vector xb, considering only the centroids specified in the
+	// includedCentroids selector.
+	ObtainClustersWithDistancesFromIVFIndex(xb []uint8, includedCentroids Selector,
+		numCentroids int64) ([]int64, []int32, error)
+
+	// searches the specified clusters in an IVF index for the k nearest neighbors
+	// of the query vector xb, considering only the vectors specified in the include selector
+	// and additional search parameters passed as a JSON object.
+	SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []int32,
+		centroidsToProbe int, xb []uint8, k int64, include Selector,
+		params json.RawMessage) ([]int32, []int64, error)
+
+	// returns the total size of the index in bytes
 	Size() uint64
+
+	// frees the memory associated with the index
 	Close()
 
 	bPtr() *C.FaissIndexBinary
@@ -52,6 +92,7 @@ func (b *faissBinaryIndex) D() int {
 }
 
 func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
+	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
 		return fmt.Errorf("index is not of ivf type")
@@ -66,6 +107,7 @@ func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
 }
 
 func (b *faissBinaryIndex) SetNProbe(nprobe int32) {
+	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
 		return
@@ -79,6 +121,7 @@ func (b *faissBinaryIndex) IsIVFIndex() bool {
 }
 
 func (b *faissBinaryIndex) IVFParams() (nlist int, nprobe int) {
+	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
 		return 0, 0

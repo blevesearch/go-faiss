@@ -87,6 +87,7 @@ type Index interface {
 	// Returns all vectors with distance < radius.
 	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
 
+	// DistCompute computes the distance between the query vector and the vectors specified by ids.
 	DistCompute(x []float32, labels []int64) ([]float32, error)
 
 	// Reset removes all vectors from the index.
