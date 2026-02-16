@@ -213,7 +213,7 @@ func (b *faissBinaryIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors
 	// Calling the C function to populate listCount
 	// with the count of vectors per cluster, considering only
 	// the vectors specified in the include selector.
-	if c := C.faiss_binary_ivf_list_vector_count(
+	if c := C.faiss_IndexBinaryIVF_list_vector_count(
 		ivfPtrBinary,
 		(*C.idx_t)(unsafe.Pointer(&listCount[0])),
 		C.size_t(nlist),
@@ -242,7 +242,7 @@ func (b *faissBinaryIndex) ObtainClustersWithDistancesFromIVFIndex(xb []uint8, i
 
 	n := (len(xb) * 8) / b.D()
 
-	if c := C.faiss_Search_binary_closest_eligible_centroids(
+	if c := C.faiss_Search_IndexBinaryIVF_closest_eligible_centroids(
 		ivfPtrBinary,
 		(C.idx_t)(n),
 		(*C.uint8_t)(&xb[0]),

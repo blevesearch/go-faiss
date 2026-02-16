@@ -67,27 +67,28 @@ func NewSearchParams(idx Index, params json.RawMessage, selector Selector,
 	if selector != nil {
 		sel = selector.Get()
 	}
-	rv := &SearchParams{}
-	// check if the index is IVF and set the search params
-	if ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr()); ivfIdx == nil {
+
+	ivfIdx := C.faiss_IndexIVF_cast(idx.cPtr())
+	// if the index is not an IVF index, create a standard SearchParameters object
+	if ivfIdx == nil {
+		rv := &SearchParams{}
 		// Create standard SearchParameters for non-IVF index
 		if c := C.faiss_SearchParameters_new(&rv.sp, sel); c != 0 {
 			return nil, fmt.Errorf("failed to create faiss search params")
 		}
-	} else {
-		nlist := int(C.faiss_IndexIVF_nlist(ivfIdx))
-		nprobe := int(C.faiss_IndexIVF_nprobe(ivfIdx))
-		nvecs := int(C.faiss_Index_ntotal(idx.cPtr()))
-
-		if err := buildSearchParams(rv, params, defaultParams, nlist, nprobe, nvecs, sel); err != nil {
-			return nil, err
-		}
+		return rv, nil
 	}
-	return rv, nil
+
+	nlist := int(C.faiss_IndexIVF_nlist(ivfIdx))
+	nprobe := int(C.faiss_IndexIVF_nprobe(ivfIdx))
+	nvecs := int(C.faiss_Index_ntotal(idx.cPtr()))
+
+	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel)
 }
 
-func buildSearchParams(sp *SearchParams, params json.RawMessage, defaultParams *defaultSearchParamsIVF,
-	nlist, nprobe, nvecs int, sel *C.FaissIDSelector) error {
+func buildSearchParams(params json.RawMessage, defaultParams *defaultSearchParamsIVF,
+	nlist, nprobe, nvecs int, sel *C.FaissIDSelector) (*SearchParams, error) {
+	sp := &SearchParams{}
 	if defaultParams != nil {
 		if defaultParams.Nlist > 0 {
 			nlist = defaultParams.Nlist
@@ -99,11 +100,11 @@ func buildSearchParams(sp *SearchParams, params json.RawMessage, defaultParams *
 	var ivfParams searchParamsIVF
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &ivfParams); err != nil {
-			return fmt.Errorf("failed to unmarshal IVF search params, "+
+			return nil, fmt.Errorf("failed to unmarshal IVF search params, "+
 				"err:%v", err)
 		}
 		if err := ivfParams.Validate(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if ivfParams.NprobePct > 0 {
@@ -119,10 +120,10 @@ func buildSearchParams(sp *SearchParams, params json.RawMessage, defaultParams *
 		C.size_t(nprobe),
 		C.size_t(maxCodes),
 	); c != 0 {
-		return fmt.Errorf("failed to create faiss IVF search params")
+		return nil, fmt.Errorf("failed to create faiss IVF search params")
 	}
 
-	return nil
+	return sp, nil
 }
 
 // Returns a standard SearchParams object without any special settings with
@@ -147,22 +148,22 @@ func NewBinarySearchParams(idx BinaryIndex, params json.RawMessage, selector Sel
 	if selector != nil {
 		sel = selector.Get()
 	}
-	rv := &SearchParams{}
 
-	if ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(idx.bPtr()); ivfPtrBinary == nil {
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(idx.bPtr())
+
+	// if the index is not an IVF index, create a standard SearchParameters object
+	if ivfPtrBinary == nil {
+		rv := &SearchParams{}
 		// Create standard SearchParameters for non-IVF index
 		if c := C.faiss_SearchParameters_new(&rv.sp, sel); c != 0 {
 			return nil, fmt.Errorf("failed to create faiss search params")
 		}
-	} else {
-		nlist := int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
-		nprobe := int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
-		nvecs := int(C.faiss_IndexBinary_ntotal(idx.bPtr()))
-
-		if err := buildSearchParams(rv, params, defaultParams, nlist, nprobe, nvecs, sel); err != nil {
-			return nil, err
-		}
+		return rv, nil
 	}
 
-	return rv, nil
+	nlist := int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
+	nprobe := int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
+	nvecs := int(C.faiss_IndexBinary_ntotal(idx.bPtr()))
+
+	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel)
 }
