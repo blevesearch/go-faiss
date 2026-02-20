@@ -4,8 +4,8 @@ package faiss
 #include <stdlib.h>
 #include <stdint.h>
 #include <faiss/c_api/Index_c_ex.h>
-#include <faiss/c_api/IndexBinary_c.h>
-#include <faiss/c_api/IndexBinaryIVF_c.h>
+#include <faiss/c_api/IndexBinary_c_ex.h>
+#include <faiss/c_api/IndexBinaryIVF_c_ex.h>
 #include <faiss/c_api/index_factory_c.h>
 */
 import "C"
@@ -45,10 +45,10 @@ type BinaryIndex interface {
 	// their corresponding distances
 	Search(xb []uint8, k int64) (distances []int32, labels []int64, err error)
 
-	// similar to Search, but allows for a selector to specify which vectors
-	// to include in the search, and additional search parameters to be passed
-	// as a JSON object.
-	SearchWithSelector(xb []uint8, k int64, selector Selector,
+	SearchWithoutIDs(xb []uint8, k int64, exclude Selector,
+		params json.RawMessage) (distances []int32, labels []int64, err error)
+
+	SearchWithIDs(xb []uint8, k int64, include Selector,
 		params json.RawMessage) (distances []int32, labels []int64, err error)
 
 	// returns a slice where each index corresponds to a cluster in an IVF
@@ -62,6 +62,10 @@ type BinaryIndex interface {
 	// includedCentroids selector.
 	ObtainClustersWithDistancesFromIVFIndex(xb []uint8, includedCentroids Selector,
 		numCentroids int64) ([]int64, []int32, error)
+
+	// Applicable only to IVF indexes: Returns the top k centroid cardinalities and
+	// their vectors in chosen order (descending or ascending)
+	ObtainKCentroidCardinalitiesFromIVFIndex(limit int, descending bool) ([]uint64, [][]uint8, error)
 
 	// searches the specified clusters in an IVF index for the k nearest neighbors
 	// of the query vector xb, considering only the vectors specified in the include selector
@@ -168,17 +172,42 @@ func (b *faissBinaryIndex) Search(xb []uint8, k int64) (
 	return distances, labels, nil
 }
 
-func (b *faissBinaryIndex) SearchWithSelector(xb []uint8, k int64, selector Selector,
+func (b *faissBinaryIndex) SearchWithoutIDs(xb []uint8, k int64, exclude Selector,
 	params json.RawMessage) ([]int32, []int64, error) {
-	nq := (len(xb) * 8) / b.D()
-	distances := make([]int32, int64(nq)*k)
-	labels := make([]int64, int64(nq)*k)
+
+	// If no exclude selector and no additional parameters are provided,
+	// perform a standard search.
+	if params == nil && exclude == nil {
+		return b.Search(xb, k)
+	}
+
+	return b.searchWithParams(xb, k, exclude, params)
+}
+
+func (b *faissBinaryIndex) SearchWithIDs(xb []uint8, k int64, include Selector,
+	params json.RawMessage) ([]int32, []int64, error) {
+
+	// If no include selector is provided, we have no results to return.
+	// return an error indicating that the SearchWithIDs requires a valid selector.
+	if include == nil {
+		return nil, nil, fmt.Errorf("SearchWithIDs requires a valid include selector")
+	}
+
+	return b.searchWithParams(xb, k, include, params)
+}
+
+func (b *faissBinaryIndex) searchWithParams(xb []uint8, k int64, selector Selector,
+	params json.RawMessage) ([]int32, []int64, error) {
 
 	searchParams, err := NewBinarySearchParams(b, params, selector, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer searchParams.Delete()
+
+	nq := (len(xb) * 8) / b.D()
+	distances := make([]int32, int64(nq)*k)
+	labels := make([]int64, int64(nq)*k)
 
 	if c := C.faiss_IndexBinary_search_with_params(
 		b.bIdx,
@@ -242,7 +271,7 @@ func (b *faissBinaryIndex) ObtainClustersWithDistancesFromIVFIndex(xb []uint8, i
 
 	n := (len(xb) * 8) / b.D()
 
-	if c := C.faiss_Search_IndexBinaryIVF_closest_eligible_centroids(
+	if c := C.faiss_IndexBinaryIVF_search_closest_eligible_centroids(
 		ivfPtrBinary,
 		(C.idx_t)(n),
 		(*C.uint8_t)(&xb[0]),
@@ -255,6 +284,57 @@ func (b *faissBinaryIndex) ObtainClustersWithDistancesFromIVFIndex(xb []uint8, i
 	}
 
 	return centroids, centroidDistances, nil
+}
+
+func (b *faissBinaryIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, descending bool) (
+	[]uint64, [][]uint8, error) {
+	if limit <= 0 {
+		return nil, nil, nil
+	}
+
+	// Applicable only to IVF indexes
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	if ivfPtrBinary == nil {
+		return nil, nil, fmt.Errorf("index is not of ivf type")
+	}
+
+	nlist := int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
+	if nlist == 0 {
+		return nil, nil, nil
+	}
+
+	centroidCardinalities := make([]C.size_t, nlist)
+
+	// Allocate a flat buffer for all centroids, then slice it per centroid
+	d := b.D()
+	flatCentroids := make([]uint8, nlist*d/8)
+
+	// Call the C function to fill centroid vectors and cardinalities
+	c := C.faiss_IndexBinaryIVF_get_centroids_and_cardinality(
+		ivfPtrBinary,
+		(*C.uint8_t)(&flatCentroids[0]),
+		(*C.size_t)(&centroidCardinalities[0]),
+		nil,
+	)
+	if c != 0 {
+		return nil, nil, getLastError()
+	}
+
+	topIndices := getIndicesOfKCentroidCardinalities(
+		centroidCardinalities,
+		min(limit, nlist),
+		descending)
+
+	rvCardinalities := make([]uint64, len(topIndices))
+	rvCentroids := make([][]uint8, len(topIndices))
+
+	for i, idx := range topIndices {
+		rvCardinalities[i] = uint64(centroidCardinalities[idx])
+		rvCentroids[i] = flatCentroids[idx*d : (idx+1)*d]
+	}
+
+	return rvCardinalities, rvCentroids, nil
+
 }
 
 func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []int32, centroidsToProbe int,
