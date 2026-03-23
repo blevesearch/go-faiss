@@ -6,6 +6,7 @@ package faiss
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
 #include <faiss/c_api/IndexIVF_c_ex.h>
+#include <faiss/c_api/IndexScalarQuantizer_c.h>
 */
 import "C"
 import (
@@ -59,4 +60,9 @@ func (idx *IndexImpl) IVFParams() (nprobe, nlist int) {
 	}
 	return int(C.faiss_IndexIVF_nprobe(ivfPtr)),
 		int(C.faiss_IndexIVF_nlist(ivfPtr))
+}
+
+func (idx *IndexImpl) IsSQIndex() bool {
+	sqPtr := C.faiss_IndexScalarQuantizer_cast(idx.cPtr())
+	return sqPtr != nil
 }

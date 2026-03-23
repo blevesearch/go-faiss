@@ -19,6 +19,9 @@ type BinaryIndex interface {
 	// D returns the dimension of the indexed vectors.
 	D() int
 
+	// MetricType returns the metric type of the index.
+	MetricType() int
+
 	// set the direct map type for IVF indexes.
 	// 0 for No Map
 	// 1 for Array
@@ -93,6 +96,10 @@ func (b *faissBinaryIndex) bPtr() *C.FaissIndexBinary {
 
 func (b *faissBinaryIndex) D() int {
 	return int(C.faiss_IndexBinary_d(b.bIdx))
+}
+
+func (b *faissBinaryIndex) MetricType() int {
+	return int(C.faiss_IndexBinary_metric_type(b.bIdx))
 }
 
 func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
