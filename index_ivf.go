@@ -72,9 +72,9 @@ func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
 		return fmt.Errorf("coarse quantizer is not valid")
 	}
 
-	err := C.faiss_Set_coarse_quantizers(ivfPtr, srcIndexPtr)
+	err := C.faiss_Set_quantizers(ivfPtr, srcIndexPtr)
 	if err != 0 {
-		return fmt.Errorf("couldn't set the coarse quantizer")
+		return fmt.Errorf("couldn't set the SQ quantizers")
 	}
 
 	return nil
