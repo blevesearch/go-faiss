@@ -66,3 +66,26 @@ func (idx *IndexImpl) IsSQIndex() bool {
 	sqPtr := C.faiss_IndexScalarQuantizer_cast(idx.cPtr())
 	return sqPtr != nil
 }
+
+func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
+	ivfPtr := C.faiss_IndexIVF_cast(idx.idx)
+	if ivfPtr == nil {
+		return fmt.Errorf("index is not of ivf type")
+	}
+
+	srcIndexPtr := srcIndex.cPtr()
+	if srcIndexPtr == nil {
+		return fmt.Errorf("coarse quantizer is not valid")
+	}
+
+	err := C.faiss_Set_quantizers(ivfPtr, srcIndexPtr)
+	if err != 0 {
+		return fmt.Errorf("couldn't set the SQ quantizers")
+	}
+
+	return nil
+}
+
+func (idx *IndexImpl) SetQuantizers(srcIndex Index) error {
+	return idx.Index.SetQuantizers(srcIndex)
+}
