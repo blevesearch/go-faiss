@@ -22,6 +22,9 @@ type BinaryIndex interface {
 	// MetricType returns the metric type of the index.
 	MetricType() int
 
+	// Ntotal returns the total number of vectors currently stored in the index.
+	Ntotal() int64
+
 	// set the direct map type for IVF indexes.
 	// 0 for No Map
 	// 1 for Array
@@ -100,6 +103,10 @@ func (b *faissBinaryIndex) D() int {
 
 func (b *faissBinaryIndex) MetricType() int {
 	return int(C.faiss_IndexBinary_metric_type(b.bIdx))
+}
+
+func (b *faissBinaryIndex) Ntotal() int64 {
+	return int64(C.faiss_IndexBinary_ntotal(b.bIdx))
 }
 
 func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
