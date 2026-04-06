@@ -120,7 +120,7 @@ func (lb *gpuLoadBalancer) monitor() {
 
 // refresh queries every GPU for free memory, sorts the device list in descending
 // order of free memory, and resets the round-robin counter to 0.
-// If all queries fail the sorted list becomes empty, causing NextDevice to error.
+// If all queries fail the sorted list becomes empty, causing nextDevice to error.
 func (lb *gpuLoadBalancer) refresh() {
 	// Zero freeMemory before querying; failed queries leave their slot as 0,
 	// which naturally excludes those devices from selection.
@@ -160,9 +160,9 @@ func (lb *gpuLoadBalancer) refresh() {
 	lb.mu.Unlock()
 }
 
-// NextDevice returns the next GPU device in round-robin order.
+// nextDevice returns the next GPU device in round-robin order.
 // Returns an error if no devices are currently available.
-func (lb *gpuLoadBalancer) NextDevice() (int, error) {
+func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
 
@@ -185,7 +185,7 @@ func getBestGPUDevice() (int, error) {
 	if loadBalancer == nil {
 		return 0, nil
 	}
-	return loadBalancer.NextDevice()
+	return loadBalancer.nextDevice()
 }
 
 // only expose API used by zapx
@@ -211,9 +211,6 @@ func (g *GPUIndexImpl) Search(x []float32, k int64) ([]float32, []int64, error) 
 }
 
 func (g *GPUIndexImpl) Close() {
-	if g == nil {
-		return
-	}
 	if g.idx != nil {
 		g.idx.Close()
 		g.idx = nil
@@ -236,9 +233,6 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		return nil, err
 	}
 
-	if device < 0 || device >= gpuCount {
-		return nil, fmt.Errorf("invalid GPU device %d", device)
-	}
 	gpuLocks[device].Lock()
 	defer gpuLocks[device].Unlock()
 	var gpuResource *C.FaissStandardGpuResources
