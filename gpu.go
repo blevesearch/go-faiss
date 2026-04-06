@@ -84,6 +84,7 @@ type gpuLoadBalancer struct {
 	sortedDevices []int
 	idx           atomic.Uint32
 	stopCh        chan struct{}
+	stopOnce      sync.Once
 	interval      time.Duration
 	// scratch buffers reused across refresh calls; only accessed by the monitor goroutine
 	freeMemory  []uint64
@@ -119,7 +120,7 @@ func (lb *gpuLoadBalancer) monitor() {
 }
 
 func (lb *gpuLoadBalancer) stop() {
-	close(lb.stopCh)
+	lb.stopOnce.Do(func() { close(lb.stopCh) })
 }
 
 // refresh queries every GPU for free memory, sorts the device list in descending
