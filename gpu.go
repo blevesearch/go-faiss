@@ -1,3 +1,19 @@
+//  Copyright (c) 2026 Couchbase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 		http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//go:build gpu
+
 package faiss
 
 /*
@@ -17,32 +33,38 @@ import (
 	"unsafe"
 )
 
+var (
+	errAccessingGPUDevices = errors.New("error accessing GPU devices")
+	errNilIndex            = errors.New("index cannot be nil")
+	errNoGPUDevices        = errors.New("no GPU devices available")
+)
+
 // process level locks to ensure GPU access is serialized across multiple threads,
 // as Faiss GPU resources are not thread safe.
 var (
-	GPUCount     int
-	GPULocks     []sync.Mutex
-	loadBalancer *GPULoadBalancer
+	gpuCount     int
+	gpuLocks     []sync.Mutex
+	loadBalancer *gpuLoadBalancer
 )
 
 func init() {
 	var err error
-	GPUCount, err = NumGPUs()
-	if err != nil || GPUCount <= 0 {
-		GPUCount = 0
+	gpuCount, err = numGPUs()
+	if err != nil || gpuCount <= 0 {
+		gpuCount = 0
 	}
-	GPULocks = make([]sync.Mutex, GPUCount)
 
 	// Initialize and start GPU load balancer if GPUs are available
 	// TODO: verify if 500 milliseconds is a good interval
-	if GPUCount > 0 {
-		loadBalancer = NewGPULoadBalancer(500 * time.Millisecond)
+	if gpuCount > 0 {
+		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
+		gpuLocks = make([]sync.Mutex, gpuCount)
 		go loadBalancer.monitor()
 	}
 }
 
-// NumGPUs returns the number of available GPU devices.
-func NumGPUs() (int, error) {
+// numGPUs returns the number of available GPU devices.
+func numGPUs() (int, error) {
 	var rv C.int
 	c := C.faiss_get_num_gpus(&rv)
 	if c != 0 {
@@ -51,27 +73,33 @@ func NumGPUs() (int, error) {
 	return int(rv), nil
 }
 
-// GPULoadBalancer monitors GPU free memory on a fixed interval, keeps a
+// gpuLoadBalancer monitors GPU free memory on a fixed interval, keeps a
 // memory-sorted list of devices, and hands them out in round-robin order.
 // At each interval the list is re-sorted and the round-robin counter resets
 // to 0, so the next cycle always starts from the GPU with the most free memory.
-type GPULoadBalancer struct {
+type gpuLoadBalancer struct {
 	mu            sync.RWMutex
 	sortedDevices []int
 	idx           atomic.Uint32
 	stopCh        chan struct{}
 	interval      time.Duration
+	// scratch buffers reused across refresh calls; only accessed by the monitor goroutine
+	freeMemory  []uint64
+	scratchDevs []int
 }
 
-func NewGPULoadBalancer(interval time.Duration) *GPULoadBalancer {
-	lb := &GPULoadBalancer{
-		stopCh:   make(chan struct{}),
-		interval: interval,
+func newGPULoadBalancer(interval time.Duration) *gpuLoadBalancer {
+	lb := &gpuLoadBalancer{
+		stopCh:        make(chan struct{}),
+		interval:      interval,
+		freeMemory:    make([]uint64, gpuCount),
+		scratchDevs:   make([]int, 0, gpuCount),
+		sortedDevices: make([]int, 0, gpuCount),
 	}
 	return lb
 }
 
-func (lb *GPULoadBalancer) monitor() {
+func (lb *gpuLoadBalancer) monitor() {
 	ticker := time.NewTicker(lb.interval)
 	defer ticker.Stop()
 
@@ -91,62 +119,55 @@ func (lb *GPULoadBalancer) monitor() {
 // refresh queries every GPU for free memory, sorts the device list in descending
 // order of free memory, and resets the round-robin counter to 0.
 // If all queries fail the sorted list becomes empty, causing NextDevice to error.
-func (lb *GPULoadBalancer) refresh() {
-	type gpuInfo struct {
-		device     int
-		freeMemory uint64
-	}
+func (lb *gpuLoadBalancer) refresh() {
+	// Zero freeMemory before querying; failed queries leave their slot as 0,
+	// which naturally excludes those devices from selection.
+	clear(lb.freeMemory)
+	lb.scratchDevs = lb.scratchDevs[:0]
 
-	results := make([]gpuInfo, GPUCount)
-	ok := make([]bool, GPUCount)
 	var wg sync.WaitGroup
-	wg.Add(GPUCount)
-	for i := 0; i < GPUCount; i++ {
+	wg.Add(gpuCount)
+	for i := 0; i < gpuCount; i++ {
 		go func(device int) {
 			defer wg.Done()
 			var freeBytes C.size_t
 			if C.faiss_gpu_free_memory(C.int(device), &freeBytes) == 0 {
-				results[device] = gpuInfo{device: device, freeMemory: uint64(freeBytes)}
-				ok[device] = true
+				lb.freeMemory[device] = uint64(freeBytes)
 			}
 		}(i)
 	}
 	wg.Wait()
 
-	var validGpus []gpuInfo
-	for i, g := range results {
-		if ok[i] {
-			validGpus = append(validGpus, g)
+	// Only include devices that reported non-zero free memory.
+	for i, mem := range lb.freeMemory {
+		if mem > 0 {
+			lb.scratchDevs = append(lb.scratchDevs, i)
 		}
 	}
 
 	// sort descending by free memory so index 0 is the most appealing GPU.
-	sort.Slice(validGpus, func(i, j int) bool {
-		return validGpus[i].freeMemory > validGpus[j].freeMemory
+	sort.Slice(lb.scratchDevs, func(i, j int) bool {
+		return lb.freeMemory[lb.scratchDevs[i]] > lb.freeMemory[lb.scratchDevs[j]]
 	})
 
-	sorted := make([]int, len(validGpus))
-	for i, g := range validGpus {
-		sorted[i] = g.device
-	}
-
-	// now update while holding the lock
 	lb.mu.Lock()
-	lb.sortedDevices = sorted
+	old := lb.sortedDevices
+	lb.sortedDevices = lb.scratchDevs
+	lb.scratchDevs = old[:0]
 	lb.idx.Store(0)
 	lb.mu.Unlock()
 }
 
 // NextDevice returns the next GPU device in round-robin order.
 // Returns an error if no devices are currently available.
-func (lb *GPULoadBalancer) NextDevice() (int, error) {
+func (lb *gpuLoadBalancer) NextDevice() (int, error) {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
 
 	devices := lb.sortedDevices
 	n := len(devices)
 	if n == 0 {
-		return 0, errors.New("error accessing GPU devices")
+		return 0, errAccessingGPUDevices
 	}
 
 	// atomically allocates the GPU. Minus 1 for zero based index
@@ -154,7 +175,7 @@ func (lb *GPULoadBalancer) NextDevice() (int, error) {
 	return devices[int(idx)%n], nil
 }
 
-func GetBestGPUDevice() (int, error) {
+func getBestGPUDevice() (int, error) {
 	// if no load balancer, that means only one gpu available
 	if loadBalancer == nil {
 		return 0, nil
@@ -162,18 +183,35 @@ func GetBestGPUDevice() (int, error) {
 	return loadBalancer.NextDevice()
 }
 
+// only expose API used by zapx
 type GPUIndexImpl struct {
-	Index
+	idx         *faissIndex
 	gpuResource *C.FaissStandardGpuResources
+}
+
+func (g *GPUIndexImpl) cPtr() *C.FaissIndex {
+	return g.idx.idx
+}
+
+func (g *GPUIndexImpl) Train(x []float32) error {
+	return g.idx.Train(x)
+}
+
+func (g *GPUIndexImpl) Add(x []float32) error {
+	return g.idx.Add(x)
+}
+
+func (g *GPUIndexImpl) Search(x []float32, k int64) ([]float32, []int64, error) {
+	return g.idx.Search(x, k)
 }
 
 func (g *GPUIndexImpl) Close() {
 	if g == nil {
 		return
 	}
-	if g.Index != nil {
-		g.Index.Close()
-		g.Index = nil
+	if g.idx != nil {
+		g.idx.Close()
+		g.idx = nil
 	}
 	if g.gpuResource != nil {
 		C.faiss_StandardGpuResources_free(g.gpuResource)
@@ -184,24 +222,24 @@ func (g *GPUIndexImpl) Close() {
 // CloneToGPU transfers a CPU index to the best available GPU based on free memory.
 func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
-		return nil, errors.New("index cannot be nil")
+		return nil, errNilIndex
 	}
 	// NO GPUs available, return an error
-	if GPUCount == 0 {
-		return nil, errors.New("no GPU devices available")
+	if gpuCount == 0 {
+		return nil, errNoGPUDevices
 	}
 
 	// Use the load balancer to select the best GPU device
-	device, err := GetBestGPUDevice()
+	device, err := getBestGPUDevice()
 	if err != nil {
 		return nil, err
 	}
 
-	if device < 0 || device >= GPUCount {
+	if device < 0 || device >= gpuCount {
 		return nil, fmt.Errorf("invalid GPU device %d", device)
 	}
-	GPULocks[device].Lock()
-	defer GPULocks[device].Unlock()
+	gpuLocks[device].Lock()
+	defer gpuLocks[device].Unlock()
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
@@ -224,7 +262,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	}
 
 	return &GPUIndexImpl{
-		Index:       &IndexImpl{idx},
+		idx:         idx,
 		gpuResource: gpuResource,
 	}, nil
 }

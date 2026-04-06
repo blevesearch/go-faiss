@@ -563,15 +563,6 @@ func (idx *faissIndex) searchWithParams(x []float32, k int64, searchParams *C.Fa
 	return
 }
 
-func (idx *faissIndex) IVFParams() (nprobe, nlist int) {
-	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return 0, 0
-	}
-	return int(C.faiss_IndexIVF_nprobe(ivfPtr)),
-		int(C.faiss_IndexIVF_nlist(ivfPtr))
-}
-
 // -----------------------------------------------------------------------------
 
 // RangeSearchResult is the result of a range search.
