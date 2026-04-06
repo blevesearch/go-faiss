@@ -118,6 +118,10 @@ func (lb *gpuLoadBalancer) monitor() {
 	}
 }
 
+func (lb *gpuLoadBalancer) stop() {
+	close(lb.stopCh)
+}
+
 // refresh queries every GPU for free memory, sorts the device list in descending
 // order of free memory, and resets the round-robin counter to 0.
 // If all queries fail the sorted list becomes empty, causing nextDevice to error.
@@ -174,7 +178,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 
 	// atomically allocates the GPU. Minus 1 for zero based index
 	idx := lb.idx.Add(1) - 1
-	return devices[int(idx)%uint32(n)], nil
+	return devices[int(idx%uint32(n))], nil
 }
 
 func getBestGPUDevice() (int, error) {
@@ -186,6 +190,14 @@ func getBestGPUDevice() (int, error) {
 		return 0, nil
 	}
 	return loadBalancer.nextDevice()
+}
+
+// StopGPULoadBalancer stops the background GPU monitor goroutine.
+// It is a no-op when there are fewer than two GPUs.
+func StopGPULoadBalancer() {
+	if loadBalancer != nil {
+		loadBalancer.stop()
+	}
 }
 
 // only expose API used by zapx
