@@ -54,11 +54,13 @@ func init() {
 		gpuCount = 0
 	}
 
-	// Initialize and start GPU load balancer if GPUs are available
+	gpuLocks = make([]sync.Mutex, gpuCount)
+
+	// With exactly one GPU there is nothing to balance; getBestGPUDevice()
+	// returns device 0 directly when loadBalancer is nil.
 	// TODO: verify if 500 milliseconds is a good interval
-	if gpuCount > 0 {
+	if gpuCount > 1 {
 		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
-		gpuLocks = make([]sync.Mutex, gpuCount)
 		go loadBalancer.monitor()
 	}
 }
@@ -172,11 +174,14 @@ func (lb *gpuLoadBalancer) NextDevice() (int, error) {
 
 	// atomically allocates the GPU. Minus 1 for zero based index
 	idx := lb.idx.Add(1) - 1
-	return devices[int(idx)%n], nil
+	return devices[int(idx)%uint32(n)], nil
 }
 
 func getBestGPUDevice() (int, error) {
-	// if no load balancer, that means only one gpu available
+	if gpuCount == 0 {
+		return 0, errNoGPUDevices
+	}
+	// With exactly one GPU there is nothing to balance; always use device 0.
 	if loadBalancer == nil {
 		return 0, nil
 	}
@@ -223,10 +228,6 @@ func (g *GPUIndexImpl) Close() {
 func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
 		return nil, errNilIndex
-	}
-	// NO GPUs available, return an error
-	if gpuCount == 0 {
-		return nil, errNoGPUDevices
 	}
 
 	// Use the load balancer to select the best GPU device
