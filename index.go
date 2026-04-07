@@ -106,9 +106,6 @@ type Index interface {
 	// consults the C++ side to get the size of the index
 	Size() uint64
 
-	// Applicable only to IVF indexes: returns the IVF parameters of the index, such as nlist, nprobe, etc.
-	IVFParams() (nprobe, nlist int)
-
 	cPtr() *C.FaissIndex
 
 	// set the quantizers from a source index into this index, applicable only
