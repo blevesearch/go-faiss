@@ -250,7 +250,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 	if gpuIndex == nil {
-		return errNilIndex
+		return nil, errNilIndex
 	}
 
 	var cpuIdx *C.FaissIndex
