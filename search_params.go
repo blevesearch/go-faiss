@@ -3,6 +3,7 @@ package faiss
 /*
 #include <faiss/c_api/Index_c.h>
 #include <faiss/c_api/IndexIVF_c.h>
+#include <faiss/c_api/IndexIVF_c_ex.h>
 #include <faiss/c_api/IndexBinaryIVF_c.h>
 #include <faiss/c_api/impl/AuxIndexStructures_c.h>
 */
@@ -83,11 +84,14 @@ func NewSearchParams(idx Index, params json.RawMessage, selector Selector,
 	nprobe := int(C.faiss_IndexIVF_nprobe(ivfIdx))
 	nvecs := int(C.faiss_Index_ntotal(idx.cPtr()))
 
-	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel)
+	if C.faiss_IndexIVF_has_RaBitQ(idx.cPtr()) == 1 {
+		return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel, true)
+	}
+	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel, false)
 }
 
 func buildSearchParams(params json.RawMessage, defaultParams *defaultSearchParamsIVF,
-	nlist, nprobe, nvecs int, sel *C.FaissIDSelector) (*SearchParams, error) {
+	nlist, nprobe, nvecs int, sel *C.FaissIDSelector, isRaBitQ bool) (*SearchParams, error) {
 	sp := &SearchParams{}
 	if defaultParams != nil {
 		if defaultParams.Nlist > 0 {
@@ -114,13 +118,24 @@ func buildSearchParams(params json.RawMessage, defaultParams *defaultSearchParam
 	if ivfParams.MaxCodesPct > 0 {
 		maxCodes = int(float32(nvecs) * (ivfParams.MaxCodesPct / 100))
 	} // else, maxCodes will be set to the default value of 0, which means no limit
-	if c := C.faiss_SearchParametersIVF_new_with(
-		&sp.sp,
-		sel,
-		C.size_t(nprobe),
-		C.size_t(maxCodes),
-	); c != 0 {
-		return nil, fmt.Errorf("failed to create faiss IVF search params")
+	if isRaBitQ {
+		if c := C.faiss_SearchParametersRaBitQ_new_with(
+			&sp.sp,
+			sel,
+			C.size_t(nprobe),
+			C.size_t(maxCodes),
+		); c != 0 {
+			return nil, fmt.Errorf("failed to create faiss IVF RaBitQ search params")
+		}
+	} else {
+		if c := C.faiss_SearchParametersIVF_new_with(
+			&sp.sp,
+			sel,
+			C.size_t(nprobe),
+			C.size_t(maxCodes),
+		); c != 0 {
+			return nil, fmt.Errorf("failed to create faiss IVF search params")
+		}
 	}
 
 	return sp, nil
@@ -167,5 +182,5 @@ func NewBinarySearchParams(idx BinaryIndex, params json.RawMessage, selector Sel
 	nprobe := int(C.faiss_IndexBinaryIVF_nprobe(ivfPtrBinary))
 	nvecs := int(C.faiss_IndexBinary_ntotal(idx.bPtr()))
 
-	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel)
+	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel, false)
 }

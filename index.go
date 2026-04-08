@@ -377,6 +377,15 @@ func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
 func (idx *faissIndex) Search(x []float32, k int64) (
 	distances []float32, labels []int64, err error,
 ) {
+	// If the index uses RaBitq, then we always need to pass params
+	if C.faiss_IndexIVF_has_RaBitQ(idx.idx) == 1 {
+		searchParams, err := NewSearchParams(idx, nil, nil, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer searchParams.Delete()
+		return idx.searchWithParams(x, k, searchParams.sp)
+	}
 	n := len(x) / idx.D()
 	distances = make([]float32, int64(n)*k)
 	labels = make([]int64, int64(n)*k)
