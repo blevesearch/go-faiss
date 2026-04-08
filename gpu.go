@@ -39,11 +39,8 @@ var (
 	errNoGPUDevices        = errors.New("no GPU devices available")
 )
 
-// process level locks to ensure GPU access is serialized across multiple threads,
-// as Faiss GPU resources are not thread safe.
 var (
 	gpuCount     int
-	gpuLocks     []sync.Mutex
 	loadBalancer *gpuLoadBalancer
 )
 
@@ -53,8 +50,6 @@ func init() {
 	if err != nil || gpuCount <= 0 {
 		gpuCount = 0
 	}
-
-	gpuLocks = make([]sync.Mutex, gpuCount)
 
 	// With exactly one GPU there is nothing to balance; getBestGPUDevice()
 	// returns device 0 directly when loadBalancer is nil.
@@ -226,8 +221,6 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		return nil, err
 	}
 
-	gpuLocks[device].Lock()
-	defer gpuLocks[device].Unlock()
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
