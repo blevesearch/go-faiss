@@ -35,7 +35,7 @@ import (
 
 var (
 	errAccessingGPUDevices = errors.New("error accessing GPU devices")
-	errNilIndex            = errors.New("index cannot be nil")
+	errNilIndex            = errors.New("index is nil")
 	errNoGPUDevices        = errors.New("no GPU devices available")
 )
 
@@ -83,8 +83,6 @@ type gpuLoadBalancer struct {
 	mu            sync.RWMutex
 	sortedDevices []int
 	idx           atomic.Uint32
-	stopCh        chan struct{}
-	stopOnce      sync.Once
 	interval      time.Duration
 	// scratch buffers reused across refresh calls; only accessed by the monitor goroutine
 	freeMemory  []uint64
@@ -93,7 +91,6 @@ type gpuLoadBalancer struct {
 
 func newGPULoadBalancer(interval time.Duration) *gpuLoadBalancer {
 	lb := &gpuLoadBalancer{
-		stopCh:        make(chan struct{}),
 		interval:      interval,
 		freeMemory:    make([]uint64, gpuCount),
 		scratchDevs:   make([]int, 0, gpuCount),
@@ -109,18 +106,9 @@ func (lb *gpuLoadBalancer) monitor() {
 	// Perform an initial sort before any requests come in.
 	lb.refresh()
 
-	for {
-		select {
-		case <-ticker.C:
-			lb.refresh()
-		case <-lb.stopCh:
-			return
-		}
+	for range ticker.C {
+		lb.refresh()
 	}
-}
-
-func (lb *gpuLoadBalancer) stop() {
-	lb.stopOnce.Do(func() { close(lb.stopCh) })
 }
 
 // refresh queries every GPU for free memory, sorts the device list in descending
@@ -191,14 +179,6 @@ func getBestGPUDevice() (int, error) {
 		return 0, nil
 	}
 	return loadBalancer.nextDevice()
-}
-
-// StopGPULoadBalancer stops the background GPU monitor goroutine.
-// It is a no-op when there are fewer than two GPUs.
-func StopGPULoadBalancer() {
-	if loadBalancer != nil {
-		loadBalancer.stop()
-	}
 }
 
 // only expose API used by zapx
@@ -276,6 +256,10 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 }
 
 func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
+	if gpuIndex == nil {
+		return errNilIndex
+	}
+
 	var cpuIdx *C.FaissIndex
 	code := C.faiss_index_gpu_to_cpu(
 		gpuIndex.cPtr(),
