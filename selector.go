@@ -72,8 +72,8 @@ func NewIDSelectorBatchNot(exclude []int64) (Selector, error) {
 		return nil, err
 	}
 
-	var sel *C.FaissIDSelector
-	if c := C.faiss_IDSelector_new(
+	var sel *C.FaissIDSelectorNot
+	if c := C.faiss_IDSelectorNot_new(
 		&sel,
 		batchSelector.Get(),
 	); c != 0 {
@@ -114,8 +114,8 @@ func NewIDSelectorBitmapNot(bitmap []byte) (Selector, error) {
 	if err != nil {
 		return nil, err
 	}
-	var sel *C.FaissIDSelector
-	if c := C.faiss_IDSelector_new(
+	var sel *C.FaissIDSelectorNot
+	if c := C.faiss_IDSelectorNot_new(
 		&sel,
 		bitmapSelector.Get(),
 	); c != 0 {

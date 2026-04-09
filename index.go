@@ -396,10 +396,8 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 func (idx *faissIndex) SearchWithSelector(x []float32, k int64, sel Selector, params json.RawMessage) (
 	distances []float32, labels []int64, err error,
 ) {
-	// If no exclude selector and no additional parameters are provided,
-	// perform a standard search.
-	if params == nil {
-		return idx.Search(x, k)
+	if sel == nil {
+		return nil, nil, fmt.Errorf("SearchWithSelector requires a valid selector when params are provided")
 	}
 	// Create search parameters with the exclude selector.
 	searchParams, err := NewSearchParams(idx, params, sel, nil)
