@@ -393,37 +393,16 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 }
 
 // SearchWithoutIDs performs a search excluding the IDs specified in the exclude selector.
-func (idx *faissIndex) SearchWithoutIDs(x []float32, k int64, exclude Selector, params json.RawMessage) (
+func (idx *faissIndex) SearchWithSelector(x []float32, k int64, sel Selector, params json.RawMessage) (
 	distances []float32, labels []int64, err error,
 ) {
 	// If no exclude selector and no additional parameters are provided,
 	// perform a standard search.
-	if params == nil && exclude == nil {
+	if params == nil {
 		return idx.Search(x, k)
 	}
 	// Create search parameters with the exclude selector.
-	searchParams, err := NewSearchParams(idx, params, exclude, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	// cleanup the searchParams after use
-	defer searchParams.Delete()
-	// Perform the search with the specified parameters.
-	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
-	return
-}
-
-// SearchWithIDs performs a search including only the IDs specified in the include selector.
-func (idx *faissIndex) SearchWithIDs(x []float32, k int64, include Selector, params json.RawMessage) (
-	distances []float32, labels []int64, err error,
-) {
-	// If no include selector is provided, we have no results to return.
-	// return an error indicating that the SearchWithIDs requires a valid selector.
-	if include == nil {
-		return nil, nil, fmt.Errorf("SearchWithIDs requires a valid include selector")
-	}
-	// Create search parameters with the include selector.
-	searchParams, err := NewSearchParams(idx, params, include, nil)
+	searchParams, err := NewSearchParams(idx, params, sel, nil)
 	if err != nil {
 		return nil, nil, err
 	}

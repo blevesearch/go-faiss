@@ -183,18 +183,6 @@ func (b *faissBinaryIndex) Search(xb []uint8, k int64) (
 	return distances, labels, nil
 }
 
-func (b *faissBinaryIndex) SearchWithoutIDs(xb []uint8, k int64, exclude Selector,
-	params json.RawMessage) ([]int32, []int64, error) {
-
-	// If no exclude selector and no additional parameters are provided,
-	// perform a standard search.
-	if params == nil && exclude == nil {
-		return b.Search(xb, k)
-	}
-
-	return b.searchWithParams(xb, k, exclude, params)
-}
-
 func (b *faissBinaryIndex) SearchWithSelector(xb []uint8, k int64, sel Selector,
 	params json.RawMessage) ([]int32, []int64, error) {
 	// If no selector is provided, we have no results to return.
@@ -202,13 +190,11 @@ func (b *faissBinaryIndex) SearchWithSelector(xb []uint8, k int64, sel Selector,
 	if sel == nil {
 		return nil, nil, fmt.Errorf("SearchWithSelector requires a valid selector")
 	}
-
-	exclude := sel.ExcludeFilter()
-	if exclude {
-
+	if params == nil {
+		return b.Search(xb, k)
 	}
 
-	return b.searchWithParams(xb, k, include, params)
+	return b.searchWithParams(xb, k, sel, params)
 }
 
 func (b *faissBinaryIndex) searchWithParams(xb []uint8, k int64, selector Selector,
