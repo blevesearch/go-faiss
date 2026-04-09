@@ -70,10 +70,7 @@ type Index interface {
 	// corresponding distances.
 	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
 
-	SearchWithoutIDs(x []float32, k int64, exclude Selector, params json.RawMessage) (distances []float32,
-		labels []int64, err error)
-
-	SearchWithIDs(x []float32, k int64, include Selector, params json.RawMessage) (distances []float32,
+	SearchWithSelector(x []float32, k int64, sel Selector, params json.RawMessage) (distances []float32,
 		labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs

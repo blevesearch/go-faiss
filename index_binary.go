@@ -51,10 +51,7 @@ type BinaryIndex interface {
 	// their corresponding distances
 	Search(xb []uint8, k int64) (distances []int32, labels []int64, err error)
 
-	SearchWithoutIDs(xb []uint8, k int64, exclude Selector,
-		params json.RawMessage) (distances []int32, labels []int64, err error)
-
-	SearchWithIDs(xb []uint8, k int64, include Selector,
+	SearchWithSelector(xb []uint8, k int64, sel Selector,
 		params json.RawMessage) (distances []int32, labels []int64, err error)
 
 	// returns a slice where each index corresponds to a cluster in an IVF
@@ -198,13 +195,17 @@ func (b *faissBinaryIndex) SearchWithoutIDs(xb []uint8, k int64, exclude Selecto
 	return b.searchWithParams(xb, k, exclude, params)
 }
 
-func (b *faissBinaryIndex) SearchWithIDs(xb []uint8, k int64, include Selector,
+func (b *faissBinaryIndex) SearchWithSelector(xb []uint8, k int64, sel Selector,
 	params json.RawMessage) ([]int32, []int64, error) {
+	// If no selector is provided, we have no results to return.
+	// return an error indicating that the SearchWithSelector requires a valid selector.
+	if sel == nil {
+		return nil, nil, fmt.Errorf("SearchWithSelector requires a valid selector")
+	}
 
-	// If no include selector is provided, we have no results to return.
-	// return an error indicating that the SearchWithIDs requires a valid selector.
-	if include == nil {
-		return nil, nil, fmt.Errorf("SearchWithIDs requires a valid include selector")
+	exclude := sel.ExcludeFilter()
+	if exclude {
+
 	}
 
 	return b.searchWithParams(xb, k, include, params)
