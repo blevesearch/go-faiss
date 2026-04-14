@@ -20,6 +20,7 @@ package faiss
 #include <stddef.h>
 #include <faiss/c_api/gpu/StandardGpuResources_c.h>
 #include <faiss/c_api/gpu/GpuAutoTune_c.h>
+#include <faiss/c_api/gpu/GpuClonerOptions_c.h>
 #include <faiss/c_api/gpu/DeviceUtils_c.h>
 */
 import "C"
@@ -37,6 +38,24 @@ var (
 	errAccessingGPUDevices = errors.New("error accessing GPU devices")
 	errNilIndex            = errors.New("index is nil")
 	errNoGPUDevices        = errors.New("no GPU devices available")
+)
+
+// memorySpace controls where GPU index data is allocated.
+type memorySpace int
+
+const (
+	// memorySpaceDevice uses standard GPU memory (cudaMalloc).
+	memorySpaceDevice memorySpace = 1
+	// memorySpaceUnified uses CUDA managed memory (cudaMallocManaged),
+	// allowing the index to exceed GPU memory on Pascal+ (CC 6.0+) GPUs.
+	memorySpaceUnified memorySpace = 2
+)
+
+const (
+	// the default amount of memory to be reserved per
+	defaultGPUBufferSize = 512 * 1024 * 1024 // 512 MiB
+	// the default memory space to use for GPU indices
+	defaultGPUMemoryMode = memorySpaceUnified
 )
 
 var (
@@ -209,8 +228,10 @@ func (g *GPUIndexImpl) Close() {
 	}
 }
 
-// CloneToGPU transfers a CPU index to the best available GPU based on free memory.
-func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
+// CloneToGPU transfers a CPU index to the best available GPU,
+// using the specified memory space. Use MemorySpaceUnified for indices that
+// exceed GPU memory (requires Pascal+ / CC 6.0+).
+func CloneToGPU(cpuIndex *IndexImpl, space MemorySpace) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
 		return nil, errNilIndex
 	}
@@ -226,11 +247,27 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
 	}
 
+	// override the max buffer size to be used for the clone operation;
+	if code := C.faiss_StandardGpuResources_setTempMemory(gpuResource, C.size_t(defaultGPUBufferSize)); code != 0 {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, fmt.Errorf("failed to set GPU temp memory: error code %d, err: %v", code, getLastError())
+	}
+
+	var clonerOpts *C.FaissGpuClonerOptions
+	if code := C.faiss_GpuClonerOptions_new(&clonerOpts); code != 0 {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, fmt.Errorf("failed to create cloner options: error code %d, err: %v", code, getLastError())
+	}
+	defer C.faiss_GpuClonerOptions_free(clonerOpts)
+
+	C.faiss_GpuClonerOptions_set_memorySpace(clonerOpts, C.int(defaultGPUMemoryMode))
+
 	var gpuIdx *C.FaissGpuIndex
-	code := C.faiss_index_cpu_to_gpu(
+	code := C.faiss_index_cpu_to_gpu_with_options(
 		gpuResource,
 		C.int(device),
 		cpuIndex.cPtr(),
+		clonerOpts,
 		&gpuIdx,
 	)
 	if code != 0 {
