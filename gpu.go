@@ -228,9 +228,7 @@ func (g *GPUIndexImpl) Close() {
 	}
 }
 
-// CloneToGPU transfers a CPU index to the best available GPU,
-// using the specified memory space. Use MemorySpaceUnified for indices that
-// exceed GPU memory (requires Pascal+ / CC 6.0+).
+// CloneToGPU transfers a CPU index to the best available GPU.
 func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
 		return nil, errNilIndex
