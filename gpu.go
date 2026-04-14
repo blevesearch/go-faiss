@@ -228,7 +228,7 @@ func (g *GPUIndexImpl) Close() {
 	}
 }
 
-// CloneToGPU transfers a CPU index to the best available GPU.
+// CloneToGPU transfers a CPU index to the best available GPU based on free memory.
 func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
 		return nil, errNilIndex
