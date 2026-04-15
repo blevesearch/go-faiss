@@ -189,10 +189,10 @@ func (b *faissBinaryIndex) SearchWithOptions(xb []uint8, k int64, sel Selector, 
 	if sel == nil && params == nil {
 		return b.Search(xb, k)
 	}
-	return b.searchWithParams(xb, k, sel, params)
+	return b.searchWithOptions(xb, k, sel, params)
 }
 
-func (b *faissBinaryIndex) searchWithParams(xb []uint8, k int64, selector Selector,
+func (b *faissBinaryIndex) searchWithOptions(xb []uint8, k int64, selector Selector,
 	params json.RawMessage) ([]int32, []int64, error) {
 	// Build a binary search params object to contain either the selector, the additional params, or both.
 	searchParams, err := NewBinarySearchParams(b, params, selector, nil)

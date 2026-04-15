@@ -398,7 +398,7 @@ func (idx *faissIndex) SearchWithOptions(x []float32, k int64, sel Selector, par
 	if sel == nil && params == nil {
 		return idx.Search(x, k)
 	}
-	return idx.searchWithParams(x, k, sel, params)
+	return idx.searchWithOptions(x, k, sel, params)
 }
 
 func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
@@ -502,7 +502,7 @@ func (idx *faissIndex) Close() {
 	C.faiss_Index_free(idx.idx)
 }
 
-func (idx *faissIndex) searchWithParams(x []float32, k int64, sel Selector, params json.RawMessage) ([]float32, []int64, error) {
+func (idx *faissIndex) searchWithOptions(x []float32, k int64, sel Selector, params json.RawMessage) ([]float32, []int64, error) {
 	// Build a search params object to contain either the selector, the additional params, or both.
 	searchParams, err := NewSearchParams(idx, params, sel, nil)
 	if err != nil {
