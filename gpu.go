@@ -27,6 +27,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -154,7 +155,12 @@ func (lb *gpuLoadBalancer) refresh() {
 		}
 	}
 
-	// sort descending by free memory so index 0 is the most appealing GPU.
+	// Shuffle first, then sort descending by free memory to make the
+	// sort as "unstable" as possible
+	// This is useful to add fairness between GPUs with the same memory 
+	rand.Shuffle(len(lb.scratchDevs), func(i, j int) {
+		lb.scratchDevs[i], lb.scratchDevs[j] = lb.scratchDevs[j], lb.scratchDevs[i]
+	})
 	sort.Slice(lb.scratchDevs, func(i, j int) bool {
 		return lb.freeMemory[lb.scratchDevs[i]] > lb.freeMemory[lb.scratchDevs[j]]
 	})
