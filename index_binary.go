@@ -51,8 +51,10 @@ type BinaryIndex interface {
 	// their corresponding distances
 	Search(xb []uint8, k int64) (distances []int32, labels []int64, err error)
 
-	SearchWithSelector(xb []uint8, k int64, sel Selector,
-		params json.RawMessage) (distances []int32, labels []int64, err error)
+	// SearchWithOptions performs a search with additional optional constraints.
+	// - Selector can be used to restrict the search to a subset of the indexed vectors based on their IDs.
+	// - params is a JSON object that can contain additional search parameters specific to the index type, such as IVF search parameters.
+	SearchWithOptions(xb []uint8, k int64, sel Selector, params json.RawMessage) (distances []int32, labels []int64, err error)
 
 	// returns a slice where each index corresponds to a cluster in an IVF
 	// index, and the value at each index is the count of vectors in that
@@ -183,23 +185,16 @@ func (b *faissBinaryIndex) Search(xb []uint8, k int64) (
 	return distances, labels, nil
 }
 
-func (b *faissBinaryIndex) SearchWithSelector(xb []uint8, k int64, sel Selector,
-	params json.RawMessage) ([]int32, []int64, error) {
-	// If no selector is provided, we have no results to return.
-	// return an error indicating that the SearchWithSelector requires a valid selector.
-	if sel == nil {
-		return nil, nil, fmt.Errorf("SearchWithSelector requires a valid selector")
-	}
-	if params == nil {
+func (b *faissBinaryIndex) SearchWithOptions(xb []uint8, k int64, sel Selector, params json.RawMessage) ([]int32, []int64, error) {
+	if sel == nil && params == nil {
 		return b.Search(xb, k)
 	}
-
-	return b.searchWithParams(xb, k, sel, params)
+	return b.searchWithOptions(xb, k, sel, params)
 }
 
-func (b *faissBinaryIndex) searchWithParams(xb []uint8, k int64, selector Selector,
+func (b *faissBinaryIndex) searchWithOptions(xb []uint8, k int64, selector Selector,
 	params json.RawMessage) ([]int32, []int64, error) {
-
+	// Build a binary search params object to contain either the selector, the additional params, or both.
 	searchParams, err := NewBinarySearchParams(b, params, selector, nil)
 	if err != nil {
 		return nil, nil, err

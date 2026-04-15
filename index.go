@@ -70,8 +70,10 @@ type Index interface {
 	// corresponding distances.
 	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
 
-	SearchWithSelector(x []float32, k int64, sel Selector, params json.RawMessage) (distances []float32,
-		labels []int64, err error)
+	// SearchWithOptions performs a search with additional optional constraints.
+	// - Selector can be used to restrict the search to a subset of the indexed vectors based on their IDs.
+	// - params is a JSON object that can contain additional search parameters specific to the index type, such as IVF search parameters.
+	SearchWithOptions(x []float32, k int64, sel Selector, params json.RawMessage) (distances []float32, labels []int64, err error)
 
 	// Applicable only to IVF indexes: Search clusters whose IDs are in eligibleCentroidIDs
 	SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []float32, centroidsToProbe int,
@@ -392,23 +394,11 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 	return
 }
 
-// SearchWithoutIDs performs a search excluding the IDs specified in the exclude selector.
-func (idx *faissIndex) SearchWithSelector(x []float32, k int64, sel Selector, params json.RawMessage) (
-	distances []float32, labels []int64, err error,
-) {
-	if sel == nil {
-		return nil, nil, fmt.Errorf("SearchWithSelector requires a valid selector when params are provided")
+func (idx *faissIndex) SearchWithOptions(x []float32, k int64, sel Selector, params json.RawMessage) ([]float32, []int64, error) {
+	if sel == nil && params == nil {
+		return idx.Search(x, k)
 	}
-	// Create search parameters with the exclude selector.
-	searchParams, err := NewSearchParams(idx, params, sel, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	// cleanup the searchParams after use
-	defer searchParams.Delete()
-	// Perform the search with the specified parameters.
-	distances, labels, err = idx.searchWithParams(x, k, searchParams.sp)
-	return
+	return idx.searchWithOptions(x, k, sel, params)
 }
 
 func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
@@ -512,26 +502,30 @@ func (idx *faissIndex) Close() {
 	C.faiss_Index_free(idx.idx)
 }
 
-func (idx *faissIndex) searchWithParams(x []float32, k int64, searchParams *C.FaissSearchParameters) (
-	distances []float32, labels []int64, err error,
-) {
+func (idx *faissIndex) searchWithOptions(x []float32, k int64, sel Selector, params json.RawMessage) ([]float32, []int64, error) {
+	// Build a search params object to contain either the selector, the additional params, or both.
+	searchParams, err := NewSearchParams(idx, params, sel, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer searchParams.Delete()
+
 	n := len(x) / idx.D()
-	distances = make([]float32, int64(n)*k)
-	labels = make([]int64, int64(n)*k)
+	distances := make([]float32, int64(n)*k)
+	labels := make([]int64, int64(n)*k)
 
 	if c := C.faiss_Index_search_with_params(
 		idx.idx,
 		C.idx_t(n),
 		(*C.float)(&x[0]),
 		C.idx_t(k),
-		searchParams,
+		searchParams.sp,
 		(*C.float)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
 	); c != 0 {
-		err = getLastError()
+		return nil, nil, getLastError()
 	}
-
-	return
+	return distances, labels, nil
 }
 
 // -----------------------------------------------------------------------------

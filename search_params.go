@@ -143,7 +143,9 @@ func NewStandardSearchParams(selector Selector) (*SearchParams, error) {
 
 func NewBinarySearchParams(idx BinaryIndex, params json.RawMessage, selector Selector,
 	defaultParams *defaultSearchParamsIVF) (*SearchParams, error) {
-
+	// Get the selector C pointer, if any.
+	// A nil selector indicates no ID filtering, and it is valid
+	// to send a nil pointer to Faiss.
 	var sel *C.FaissIDSelector
 	if selector != nil {
 		sel = selector.Get()
