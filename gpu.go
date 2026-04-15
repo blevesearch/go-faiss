@@ -161,6 +161,7 @@ func (lb *gpuLoadBalancer) refresh() {
 	rand.Shuffle(len(lb.scratchDevs), func(i, j int) {
 		lb.scratchDevs[i], lb.scratchDevs[j] = lb.scratchDevs[j], lb.scratchDevs[i]
 	})
+	// Sort in a descending order by free memory so index 0 is the most appealing GPU.
 	sort.Slice(lb.scratchDevs, func(i, j int) bool {
 		return lb.freeMemory[lb.scratchDevs[i]] > lb.freeMemory[lb.scratchDevs[j]]
 	})
