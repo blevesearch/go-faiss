@@ -84,7 +84,7 @@ func NewSearchParams(idx Index, params json.RawMessage, selector Selector,
 	nprobe := int(C.faiss_IndexIVF_nprobe(ivfIdx))
 	nvecs := int(C.faiss_Index_ntotal(idx.cPtr()))
 
-	if C.faiss_IndexIVF_has_RaBitQ(idx.cPtr()) == 1 {
+	if C.faiss_IndexIVF_has_RaBitQ(idx.cPtr()) == 0 {
 		return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel, true)
 	}
 	return buildSearchParams(params, defaultParams, nlist, nprobe, nvecs, sel, false)

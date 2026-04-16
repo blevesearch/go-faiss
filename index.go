@@ -378,7 +378,7 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 	distances []float32, labels []int64, err error,
 ) {
 	// If the index uses RaBitq, then we always need to pass params
-	if C.faiss_IndexIVF_has_RaBitQ(idx.idx) == 1 {
+	if C.faiss_IndexIVF_has_RaBitQ(idx.idx) == 0 {
 		searchParams, err := NewSearchParams(idx, nil, nil, nil)
 		if err != nil {
 			return nil, nil, err
