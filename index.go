@@ -48,6 +48,9 @@ type Index interface {
 	// Returns true if the index is an IVF index.
 	IsIVFIndex() bool
 
+	// Returns true if the index has RaBitQ
+	HasRaBitQ() bool
+
 	// Applicable only to IVF indexes: Returns a slice where each index represents
 	// a cluster (list) ID and the value is the count of selected vectors belonging
 	// to that cluster. Only vectors specified by the given Selector are considered.
@@ -192,6 +195,10 @@ func (idx *faissIndex) IsIVFIndex() bool {
 		return false
 	}
 	return true
+}
+
+func (idx *faissIndex) HasRaBitQ() bool {
+	return C.faiss_IndexIVF_has_RaBitQ(idx.idx) == 0
 }
 
 func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, includedCentroids Selector, numCentroids int64) (
@@ -374,6 +381,9 @@ func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
 	return nil
 }
 
+// Always use SearchWithOptions for indexes involving RaBitQ, as
+// simple Search is highly unoptimized for RaBitQ indexes and
+// will not leverage the quantizer for search.
 func (idx *faissIndex) Search(x []float32, k int64) (
 	distances []float32, labels []int64, err error,
 ) {
@@ -395,7 +405,7 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 }
 
 func (idx *faissIndex) SearchWithOptions(x []float32, k int64, sel Selector, params json.RawMessage) ([]float32, []int64, error) {
-	if sel == nil && params == nil {
+	if sel == nil && params == nil && !idx.HasRaBitQ() {
 		return idx.Search(x, k)
 	}
 	return idx.searchWithOptions(x, k, sel, params)
