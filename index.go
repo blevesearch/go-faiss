@@ -198,7 +198,7 @@ func (idx *faissIndex) IsIVFIndex() bool {
 }
 
 func (idx *faissIndex) HasRaBitQ() bool {
-	return C.faiss_IndexIVF_has_RaBitQ(idx.idx) != 0
+	return C.faiss_IndexIVF_has_RaBitQ(idx.idx) == 0
 }
 
 func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, includedCentroids Selector, numCentroids int64) (
