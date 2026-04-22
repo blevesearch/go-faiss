@@ -439,13 +439,6 @@ func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float
 	return recons, err
 }
 
-func (i *IndexImpl) MergeFrom(other Index, add_id int64) error {
-	if impl, ok := other.(*IndexImpl); ok {
-		return i.Index.MergeFrom(impl.Index, add_id)
-	}
-	return fmt.Errorf("merge not support")
-}
-
 func (idx *faissIndex) MergeFrom(other Index, add_id int64) (err error) {
 	otherIdx, ok := other.(*faissIndex)
 	if !ok {
