@@ -33,6 +33,15 @@ type Index interface {
 	// Ntotal returns the number of indexed vectors.
 	Ntotal() int64
 
+	// set the direct map type for IVF indexes.
+	// 0 for No Map
+	// 1 for Array
+	// 2 for Hash
+	SetDirectMap(maptype int) error
+
+	// set the number of probes for IVF indexes
+	SetNProbe(nprobe int32)
+
 	// MetricType returns the metric type of the index.
 	MetricType() int
 
@@ -48,8 +57,14 @@ type Index interface {
 	// Returns true if the index is an IVF index.
 	IsIVFIndex() bool
 
+	// Returns true if the index is a scalar quantization (SQ) index.
+	IsSQIndex() bool
+
 	// Returns true if the index has RaBitQ
 	HasRaBitQ() bool
+
+	// Returns the IVF parameters nprobe and nlist for IVF indexes.
+	IVFParams() (nprobe, nlist int)
 
 	// Applicable only to IVF indexes: Returns a slice where each index represents
 	// a cluster (list) ID and the value is the count of selected vectors belonging
@@ -437,13 +452,6 @@ func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float
 	}
 
 	return recons, err
-}
-
-func (i *IndexImpl) MergeFrom(other Index, add_id int64) error {
-	if impl, ok := other.(*IndexImpl); ok {
-		return i.Index.MergeFrom(impl.Index, add_id)
-	}
-	return fmt.Errorf("merge not support")
 }
 
 func (idx *faissIndex) MergeFrom(other Index, add_id int64) (err error) {
