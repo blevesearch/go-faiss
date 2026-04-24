@@ -17,7 +17,7 @@ func (idx *faissIndex) SetDirectMap(mapType int) (err error) {
 
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
-		return fmt.Errorf("index is not of ivf type")
+		return errNotIVFIndex
 	}
 	if c := C.faiss_IndexIVF_set_direct_map(
 		ivfPtr,
@@ -80,7 +80,7 @@ func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
 
 	err := C.faiss_Set_quantizers(idx.idx, srcIndexPtr)
 	if err != 0 {
-		return fmt.Errorf("couldn't set the quantizer for float index")
+		return fmt.Errorf("faissIndex: %w", errFailedToSetQuantizers)
 	}
 
 	return nil

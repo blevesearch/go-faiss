@@ -47,8 +47,12 @@ type BinaryIndex interface {
 	// adds vectors to the index
 	Add(xb []uint8) error
 
+	// sets the qunatizers from the source index, supposed to be used only for
+	// BIVF indexes and returns error otherwise
 	SetQuantizers(srcIndex BinaryIndex) error
 
+	// merges another binary index into this one, currently applicable only for
+	// IVF indexes returns an error
 	MergeFrom(other BinaryIndex, add_id int64) error
 
 	// queries the index with the vectors in xb
@@ -117,7 +121,7 @@ func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
 	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
-		return fmt.Errorf("index is not of bivf type")
+		return errNotBIVFIndex
 	}
 	if c := C.faiss_IndexBinaryIVF_set_direct_map(
 		ivfPtrBinary,
@@ -228,7 +232,7 @@ func (b *faissBinaryIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors
 	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
-		return nil, fmt.Errorf("index is not of bivf type")
+		return nil, errNotBIVFIndex
 	}
 	// Creating a slice to hold the count of vectors per cluster
 	// Since we have nlist clusters, we create a slice of size nlist
@@ -258,7 +262,7 @@ func (b *faissBinaryIndex) ObtainClustersWithDistancesFromIVFIndex(xb []uint8, i
 	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
-		return nil, nil, fmt.Errorf("index is not of bivf type")
+		return nil, nil, errNotBIVFIndex
 	}
 	params, err := NewStandardSearchParams(includedCentroids)
 	if err != nil {
@@ -296,7 +300,7 @@ func (b *faissBinaryIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, d
 	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
-		return nil, nil, fmt.Errorf("index is not of bivf type")
+		return nil, nil, errNotBIVFIndex
 	}
 
 	nlist := int(C.faiss_IndexBinaryIVF_nlist(ivfPtrBinary))
@@ -343,7 +347,7 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 	// Applicable only to IVF indexes
 	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
 	if ivfPtrBinary == nil {
-		return nil, nil, fmt.Errorf("index is not of bivf type")
+		return nil, nil, errNotBIVFIndex
 	}
 	// If no include selector is provided, we have no results to return.
 	// return an error indicating that the SearchClustersFromIVFIndex requires a valid selector.
@@ -425,10 +429,17 @@ func BinaryIndexFactory(dims int, description string) (*BinaryIndexImpl, error) 
 	return &BinaryIndexImpl{&idx}, nil
 }
 
+func (idx *BinaryIndexImpl) SetQuantizers(srcIndex BinaryIndex) error {
+	if srcIndex == nil {
+		return fmt.Errorf("BinaryIndexImpl SetQuantizers: %w", errSourceIndexNil)
+	}
+	return idx.BinaryIndex.SetQuantizers(srcIndex)
+}
+
 func (idx *faissBinaryIndex) SetQuantizers(srcIndex BinaryIndex) error {
-	bivf := C.faiss_IndexBinaryIVF_cast(idx.bIdx)
+	bivf := C.faiss_IndexBinaryIVF_cast(idx.bPtr())
 	if bivf == nil {
-		return fmt.Errorf("index is not of bivf type")
+		return errNotBIVFIndex
 	}
 
 	srcIndexPtr := srcIndex.bPtr()
@@ -438,31 +449,31 @@ func (idx *faissBinaryIndex) SetQuantizers(srcIndex BinaryIndex) error {
 
 	err := C.faiss_Set_quantizers_binary(idx.bIdx, srcIndexPtr)
 	if err != 0 {
-		return fmt.Errorf("couldn't set the quantizers")
+		return fmt.Errorf("faissBinaryIndex: %w", errFailedToSetQuantizers)
 	}
 
 	return nil
 }
 
-func (idx *BinaryIndexImpl) SetQuantizers(srcIndex BinaryIndex) error {
-	return idx.BinaryIndex.SetQuantizers(srcIndex)
-}
-
-func (i *BinaryIndexImpl) MergeFrom(other BinaryIndex, add_id int64) error {
-	if impl, ok := other.(*BinaryIndexImpl); ok {
-		return i.BinaryIndex.MergeFrom(impl.BinaryIndex, add_id)
+func (idx *BinaryIndexImpl) MergeFrom(source BinaryIndex, add_id int64) error {
+	if source == nil {
+		return fmt.Errorf("BinaryIndexImpl MergeFrom: %w", errSourceIndexNil)
 	}
-	return fmt.Errorf("merge not support")
+	return idx.BinaryIndex.MergeFrom(source, add_id)
 }
 
 func (idx *faissBinaryIndex) MergeFrom(other BinaryIndex, add_id int64) (err error) {
 	otherIdx, ok := other.(*faissBinaryIndex)
 	if !ok {
-		return fmt.Errorf("merge api not supported")
+		return fmt.Errorf("faissBinaryIndex: %w, %T", errMergeFromNotSupported, other)
+	}
+	bivf := C.faiss_IndexBinaryIVF_cast(idx.bPtr())
+	if bivf == nil {
+		return errNotBIVFIndex
 	}
 
 	if c := C.faiss_IndexBinaryIVF_merge_from(
-		idx.bIdx,
+		idx.bPtr(),
 		otherIdx.bIdx,
 		(C.idx_t)(add_id),
 	); c != 0 {
