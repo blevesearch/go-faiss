@@ -442,13 +442,17 @@ func (idx *faissBinaryIndex) SetQuantizers(srcIndex BinaryIndex) error {
 
 	err := C.faiss_Set_quantizers_binary(idx.bIdx, srcIndexPtr)
 	if err != 0 {
-		return fmt.Errorf("faissBinaryIndex: %w", errFailedToSetQuantizers)
+		return fmt.Errorf("faissBinaryIndex err: %w", errFailedToSetQuantizers)
 	}
 
 	return nil
 }
 
 func (idx *faissBinaryIndex) MergeFrom(other BinaryIndex, add_id int64) (err error) {
+	if !idx.IsIVFIndex() && !other.IsIVFIndex() {
+		return fmt.Errorf("faissBinaryIndex err: %w", errNotBIVFIndex)
+	}
+
 	if c := C.faiss_IndexBinaryIVF_merge_from(
 		idx.bPtr(),
 		other.bPtr(),

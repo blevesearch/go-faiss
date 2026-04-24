@@ -455,6 +455,13 @@ func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float
 }
 
 func (idx *faissIndex) MergeFrom(other Index, add_id int64) (err error) {
+	// currrently we support the mergeFrom API only for IVF and SQ indexes
+	// todo: support on Flat index as well
+	if !(idx.IsIVFIndex() && other.IsIVFIndex()) &&
+		!(idx.IsSQIndex() && other.IsSQIndex()) {
+		return fmt.Errorf("faissIndex MergeFrom err: %w", errMergeFromNotSupported)
+	}
+
 	if c := C.faiss_Index_merge_from(
 		idx.cPtr(),
 		other.cPtr(),

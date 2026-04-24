@@ -68,8 +68,8 @@ func (idx *faissIndex) IsSQIndex() bool {
 }
 
 func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
-	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil && !idx.IsSQIndex() {
+	if !(idx.IsIVFIndex() && srcIndex.IsIVFIndex()) &&
+		!(idx.IsSQIndex() && srcIndex.IsSQIndex()) {
 		return fmt.Errorf("faissIndex SetQuantizers: %w, index type not supported", errFailedToSetQuantizers)
 	}
 
