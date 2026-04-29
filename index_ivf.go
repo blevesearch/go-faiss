@@ -17,7 +17,7 @@ func (idx *faissIndex) SetDirectMap(mapType int) (err error) {
 
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
-		return fmt.Errorf("index is not of ivf type")
+		return errNotIVFIndex
 	}
 	if c := C.faiss_IndexIVF_set_direct_map(
 		ivfPtr,
@@ -68,9 +68,9 @@ func (idx *faissIndex) IsSQIndex() bool {
 }
 
 func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
-	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
-	if ivfPtr == nil {
-		return fmt.Errorf("index is not of ivf type")
+	if !(idx.IsIVFIndex() && srcIndex.IsIVFIndex()) &&
+		!(idx.IsSQIndex() && srcIndex.IsSQIndex()) {
+		return fmt.Errorf("faissIndex SetQuantizers: %w, index type not supported", errFailedToSetQuantizers)
 	}
 
 	srcIndexPtr := srcIndex.cPtr()
@@ -78,9 +78,9 @@ func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
 		return fmt.Errorf("coarse quantizer is not valid")
 	}
 
-	err := C.faiss_Set_quantizers(ivfPtr, srcIndexPtr)
+	err := C.faiss_Set_quantizers(idx.idx, srcIndexPtr)
 	if err != 0 {
-		return fmt.Errorf("couldn't set the SQ quantizers")
+		return fmt.Errorf("faissIndex SetQuantizers: %w", errFailedToSetQuantizers)
 	}
 
 	return nil

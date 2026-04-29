@@ -179,7 +179,7 @@ func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors Sel
 	// Applicable only to IVF indexes
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
-		return nil, fmt.Errorf("index is not of ivf type")
+		return nil, errNotIVFIndex
 	}
 	// Creating a slice to hold the count of vectors per cluster
 	// Since we have nlist clusters, we create a slice of size nlist
@@ -221,7 +221,7 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, incl
 	// Applicable only to IVF indexes
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
-		return nil, nil, fmt.Errorf("index is not of ivf type")
+		return nil, nil, errNotIVFIndex
 	}
 	params, err := NewStandardSearchParams(includedCentroids)
 	if err != nil {
@@ -328,7 +328,7 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, c
 	// Applicable only to IVF indexes
 	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
 	if ivfPtr == nil {
-		return nil, nil, fmt.Errorf("index is not of ivf type")
+		return nil, nil, errNotIVFIndex
 	}
 	// If no include selector is provided, we have no results to return.
 	// return an error indicating that the SearchClustersFromIVFIndex requires a valid selector.
@@ -455,14 +455,16 @@ func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float
 }
 
 func (idx *faissIndex) MergeFrom(other Index, add_id int64) (err error) {
-	otherIdx, ok := other.(*faissIndex)
-	if !ok {
-		return fmt.Errorf("merge api not supported")
+	// currrently we support the mergeFrom API only for IVF and SQ indexes
+	// todo: support on Flat index as well
+	if !(idx.IsIVFIndex() && other.IsIVFIndex()) &&
+		!(idx.IsSQIndex() && other.IsSQIndex()) {
+		return fmt.Errorf("faissIndex MergeFrom err: %w", errMergeFromNotSupported)
 	}
 
 	if c := C.faiss_Index_merge_from(
-		idx.idx,
-		otherIdx.idx,
+		idx.cPtr(),
+		other.cPtr(),
 		(C.idx_t)(add_id),
 	); c != 0 {
 		err = getLastError()
