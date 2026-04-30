@@ -53,8 +53,8 @@ const (
 )
 
 const (
-	// the default amount of memory to be reserved per
-	defaultGPUBufferSize = 512 * 1024 * 1024 // 512 MiB
+	// the minimum amount of free memory that must be available on a GPU to be considered for index cloning.
+	minGPUFreeMemory = 512 * 1024 * 1024 // 512 MiB
 	// the default memory space to use for GPU indices
 	defaultGPUMemoryMode = memorySpaceUnified
 )
@@ -148,16 +148,16 @@ func (lb *gpuLoadBalancer) refresh() {
 	}
 	wg.Wait()
 
-	// Only include devices that reported non-zero free memory.
+	// Only include devices that reported non-zero free memory, and have at least minGPUFreeMemory free.
 	for i, mem := range lb.freeMemory {
-		if mem > 0 {
+		if mem > minGPUFreeMemory {
 			lb.scratchDevs = append(lb.scratchDevs, i)
 		}
 	}
 
 	// Shuffle first, then sort descending by free memory to make the
 	// sort as "unstable" as possible
-	// This is useful to add fairness between GPUs with the same memory 
+	// This is useful to add fairness between GPUs with the same memory
 	rand.Shuffle(len(lb.scratchDevs), func(i, j int) {
 		lb.scratchDevs[i], lb.scratchDevs[j] = lb.scratchDevs[j], lb.scratchDevs[i]
 	})
@@ -252,10 +252,12 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
 	}
 
-	// override the max buffer size to be used for the clone operation;
-	if code := C.faiss_StandardGpuResources_setTempMemory(gpuResource, C.size_t(defaultGPUBufferSize)); code != 0 {
+	// Disable the pre-allocated temp memory pool so that all GPU memory is
+	// available for index data; unified memory mode handles intermediate
+	// allocations via cudaMalloc/cudaFree on demand.
+	if code := C.faiss_StandardGpuResources_noTempMemory(gpuResource); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, fmt.Errorf("failed to set GPU temp memory: error code %d, err: %v", code, getLastError())
+		return nil, fmt.Errorf("failed to disable GPU temp memory: error code %d, err: %v", code, getLastError())
 	}
 
 	var clonerOpts *C.FaissGpuClonerOptions
