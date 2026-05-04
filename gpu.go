@@ -70,14 +70,9 @@ func init() {
 	if err != nil || gpuCount <= 0 {
 		gpuCount = 0
 	}
-
-	// With exactly one GPU there is nothing to balance; getBestGPUDevice()
-	// returns device 0 directly when loadBalancer is nil.
 	// TODO: verify if 500 milliseconds is a good interval
-	if gpuCount > 1 {
-		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
-		go loadBalancer.monitor()
-	}
+	loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
+	go loadBalancer.monitor()
 }
 
 // numGPUs returns the number of available GPU devices.
@@ -111,16 +106,13 @@ func newGPULoadBalancer(interval time.Duration) *gpuLoadBalancer {
 		scratchDevs:   make([]int, 0, gpuCount),
 		sortedDevices: make([]int, 0, gpuCount),
 	}
+	lb.refresh() // populate initial device list before monitor starts ticking
 	return lb
 }
 
 func (lb *gpuLoadBalancer) monitor() {
 	ticker := time.NewTicker(lb.interval)
 	defer ticker.Stop()
-
-	// Perform an initial sort before any requests come in.
-	lb.refresh()
-
 	for range ticker.C {
 		lb.refresh()
 	}
@@ -192,12 +184,8 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 }
 
 func getBestGPUDevice() (int, error) {
-	if gpuCount == 0 {
+	if gpuCount == 0 || loadBalancer == nil {
 		return 0, errNoGPUDevices
-	}
-	// With exactly one GPU there is nothing to balance; always use device 0.
-	if loadBalancer == nil {
-		return 0, nil
 	}
 	return loadBalancer.nextDevice()
 }
