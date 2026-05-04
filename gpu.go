@@ -70,9 +70,11 @@ func init() {
 	if err != nil || gpuCount <= 0 {
 		gpuCount = 0
 	}
-	// TODO: verify if 500 milliseconds is a good interval
-	loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
-	go loadBalancer.monitor()
+	if gpuCount > 0 {
+		// TODO: verify if 500 milliseconds is a good interval
+		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
+		go loadBalancer.monitor()
+	}
 }
 
 // numGPUs returns the number of available GPU devices.
