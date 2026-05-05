@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //go:build !gpu
+// +build !gpu
 
 package faiss
 

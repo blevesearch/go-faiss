@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //go:build gpu
+// +build gpu
 
 package faiss
 
@@ -55,8 +56,10 @@ const (
 const (
 	// the minimum amount of free memory that must be available on a GPU to be considered for index cloning.
 	minGPUFreeMemory = 512 * 1024 * 1024 // 512 MiB
-	// the default memory space to use for GPU indices
+	// the default memory space to use for GPU indices.
 	defaultGPUMemoryMode = memorySpaceUnified
+	// the default amount of pinned memory to allocate for each GPU clone operation.
+	defaultGPUPinnedMemory = 0
 )
 
 var (
@@ -248,6 +251,10 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if code := C.faiss_StandardGpuResources_noTempMemory(gpuResource); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to disable GPU temp memory: error code %d, err: %v", code, getLastError())
+	}
+	if code := C.faiss_StandardGpuResources_setPinnedMemory(gpuResource, C.size_t(defaultGPUPinnedMemory)); code != 0 {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, fmt.Errorf("failed to disable GPU pinned memory: error code %d, err: %v", code, getLastError())
 	}
 
 	var clonerOpts *C.FaissGpuClonerOptions
