@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //go:build gpu
+// +build gpu
 
 package faiss
 
@@ -55,8 +56,10 @@ const (
 const (
 	// the minimum amount of free memory that must be available on a GPU to be considered for index cloning.
 	minGPUFreeMemory = 512 * 1024 * 1024 // 512 MiB
-	// the default memory space to use for GPU indices
+	// the default memory space to use for GPU indices.
 	defaultGPUMemoryMode = memorySpaceUnified
+	// the default amount of pinned memory to allocate for each GPU clone operation.
+	defaultGPUPinnedMemory = 0
 )
 
 var (
@@ -70,11 +73,8 @@ func init() {
 	if err != nil || gpuCount <= 0 {
 		gpuCount = 0
 	}
-
-	// With exactly one GPU there is nothing to balance; getBestGPUDevice()
-	// returns device 0 directly when loadBalancer is nil.
-	// TODO: verify if 500 milliseconds is a good interval
-	if gpuCount > 1 {
+	if gpuCount > 0 {
+		// TODO: verify if 500 milliseconds is a good interval
 		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
 		go loadBalancer.monitor()
 	}
@@ -111,16 +111,13 @@ func newGPULoadBalancer(interval time.Duration) *gpuLoadBalancer {
 		scratchDevs:   make([]int, 0, gpuCount),
 		sortedDevices: make([]int, 0, gpuCount),
 	}
+	lb.refresh() // populate initial device list before monitor starts ticking
 	return lb
 }
 
 func (lb *gpuLoadBalancer) monitor() {
 	ticker := time.NewTicker(lb.interval)
 	defer ticker.Stop()
-
-	// Perform an initial sort before any requests come in.
-	lb.refresh()
-
 	for range ticker.C {
 		lb.refresh()
 	}
@@ -192,12 +189,8 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 }
 
 func getBestGPUDevice() (int, error) {
-	if gpuCount == 0 {
+	if gpuCount == 0 || loadBalancer == nil {
 		return 0, errNoGPUDevices
-	}
-	// With exactly one GPU there is nothing to balance; always use device 0.
-	if loadBalancer == nil {
-		return 0, nil
 	}
 	return loadBalancer.nextDevice()
 }
@@ -258,6 +251,10 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if code := C.faiss_StandardGpuResources_noTempMemory(gpuResource); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to disable GPU temp memory: error code %d, err: %v", code, getLastError())
+	}
+	if code := C.faiss_StandardGpuResources_setPinnedMemory(gpuResource, C.size_t(defaultGPUPinnedMemory)); code != 0 {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, fmt.Errorf("failed to disable GPU pinned memory: error code %d, err: %v", code, getLastError())
 	}
 
 	var clonerOpts *C.FaissGpuClonerOptions
