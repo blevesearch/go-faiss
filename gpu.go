@@ -41,6 +41,7 @@ var (
 	errAccessingGPUDevices = errors.New("error accessing GPU devices")
 	errNilIndex            = errors.New("index is nil")
 	errNoGPUDevices        = errors.New("no GPU devices available")
+	errNotEnoughGPUMemory  = errors.New("selected GPU device does not have enough free memory for cloning")
 )
 
 // memorySpace controls where GPU index data is allocated.
@@ -67,6 +68,7 @@ var (
 	gpuCount                      int
 	loadBalancer                  *gpuLoadBalancer
 	reflectStaticSizeGPUIndexImpl uint64
+	scheduler                     *gpuScheduler
 )
 
 func init() {
@@ -78,10 +80,16 @@ func init() {
 	if err != nil || gpuCount <= 0 {
 		gpuCount = 0
 	}
-	if gpuCount > 0 {
-		// TODO: verify if 500 milliseconds is a good interval
+	// Only initialize the load balancer if multiple GPUs are available,
+	// as it's not needed for a single GPU and adds overhead from monitoring.
+	if gpuCount > 1 {
 		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
 		go loadBalancer.monitor()
+	}
+	// Initialize the GPU scheduler if at least one GPU is available;
+	// it will be used to serialize access to each GPU device to prevent oversubscription.
+	if gpuCount > 0 {
+		scheduler = newGPUScheduler(gpuCount)
 	}
 }
 
@@ -95,6 +103,17 @@ func numGPUs() (int, error) {
 	return int(rv), nil
 }
 
+// getFreeGPUMemory returns the amount of free memory in bytes for the specified GPU device.
+// It handles any CGO error by returning 0, which will allow callers to naturally exclude that device from selection.
+func getFreeGPUMemory(device int) uint64 {
+	var freeBytes C.size_t
+	if c := C.faiss_gpu_free_memory(C.int(device), &freeBytes); c == 0 {
+		return uint64(freeBytes)
+	}
+	return 0
+}
+
+// --------------------------------------------------------------------------------
 // gpuLoadBalancer monitors GPU free memory on a fixed interval, keeps a
 // memory-sorted list of devices, and hands them out in round-robin order.
 // At each interval the list is re-sorted and the round-robin counter resets
@@ -142,17 +161,15 @@ func (lb *gpuLoadBalancer) refresh() {
 	for i := 0; i < gpuCount; i++ {
 		go func(device int) {
 			defer wg.Done()
-			var freeBytes C.size_t
-			if C.faiss_gpu_free_memory(C.int(device), &freeBytes) == 0 {
-				lb.freeMemory[device] = uint64(freeBytes)
-			}
+			lb.freeMemory[device] = getFreeGPUMemory(device)
 		}(i)
 	}
 	wg.Wait()
 
-	// Only include devices that reported non-zero free memory, and have at least minGPUFreeMemory free.
+	// Only include devices that reported non-zero free memory and
+	// have at least the minimum required free memory for cloning.
 	for i, mem := range lb.freeMemory {
-		if mem > minGPUFreeMemory {
+		if mem > 0 && mem >= minGPUFreeMemory {
 			lb.scratchDevs = append(lb.scratchDevs, i)
 		}
 	}
@@ -194,11 +211,40 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 }
 
 func getBestGPUDevice() (int, error) {
-	if gpuCount == 0 || loadBalancer == nil {
+	if gpuCount == 0 || scheduler == nil {
 		return 0, errNoGPUDevices
+	}
+	// If loadBalancer is nil, it means we have only 1 GPU, so just return device 0.
+	if loadBalancer == nil {
+		return 0, nil
 	}
 	return loadBalancer.nextDevice()
 }
+
+// --------------------------------------------------------------------------------
+// gpuScheduler provides a simple mutex-like mechanism to serialize index clones to
+// each GPU device, preventing oversubscription and out-of-memory errors when multiple
+// goroutines attempt to clone to the same GPU at the same time.
+type gpuScheduler struct {
+	deviceMu []sync.Mutex
+}
+
+func newGPUScheduler(numGPUs int) *gpuScheduler {
+	s := &gpuScheduler{
+		deviceMu: make([]sync.Mutex, numGPUs),
+	}
+	return s
+}
+
+func (s *gpuScheduler) acquire(device int) {
+	s.deviceMu[device].Lock()
+}
+
+func (s *gpuScheduler) release(device int) {
+	s.deviceMu[device].Unlock()
+}
+
+// --------------------------------------------------------------------------------
 
 type GPUIndexImpl struct {
 	idx         *faissIndex
@@ -246,6 +292,15 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	device, err := getBestGPUDevice()
 	if err != nil {
 		return nil, err
+	}
+	// Acquire the GPU resource for the duration of the clone operation to prevent oversubscription.
+	scheduler.acquire(device)
+	defer scheduler.release(device)
+
+	// first check if we have enough free memory on the selected GPU before attempting the clone, to avoid unnecessary work and errors.
+	freeMem := getFreeGPUMemory(device)
+	if freeMem < minGPUFreeMemory {
+		return nil, errNotEnoughGPUMemory
 	}
 
 	var gpuResource *C.FaissStandardGpuResources
