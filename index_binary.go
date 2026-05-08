@@ -403,7 +403,10 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 }
 
 func (b *faissBinaryIndex) Size() uint64 {
-	size := C.faiss_IndexBinary_size(b.bIdx)
+	var size C.size_t
+	if code := C.faiss_IndexBinary_size(b.bIdx, &size); code != 0 {
+		return 0
+	}
 	return uint64(size)
 }
 

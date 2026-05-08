@@ -139,7 +139,10 @@ func (idx *faissIndex) cPtr() *C.FaissIndex {
 }
 
 func (idx *faissIndex) Size() uint64 {
-	size := C.faiss_Index_size(idx.idx)
+	var size C.size_t
+	if code := C.faiss_Index_size(idx.idx, &size); code != 0 {
+		return 0
+	}
 	return uint64(size)
 }
 
