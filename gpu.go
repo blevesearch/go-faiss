@@ -56,8 +56,8 @@ const (
 )
 
 const (
-	// the minimum amount of free memory that must be available on a GPU to be considered for index cloning.
-	minGPUFreeMemory = 512 * 1024 * 1024 // 512 MiB
+	// the default minimum amount of free memory that must be available on a GPU to be considered for index cloning.
+	defaultGPUMinFreeMemory = 512 * 1024 * 1024 // 512 MiB
 	// the default memory space to use for GPU indices.
 	defaultGPUMemoryMode = memorySpaceUnified
 	// the default amount of pinned memory to allocate for each GPU clone operation.
@@ -169,7 +169,7 @@ func (lb *gpuLoadBalancer) refresh() {
 	// Only include devices that reported non-zero free memory and
 	// have at least the minimum required free memory for cloning.
 	for i, mem := range lb.freeMemory {
-		if mem > 0 && mem >= minGPUFreeMemory {
+		if mem > 0 && mem >= defaultGPUMinFreeMemory {
 			lb.scratchDevs = append(lb.scratchDevs, i)
 		}
 	}
@@ -304,7 +304,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 	// The GPU must have enough free memory for the index plus a minimum buffer.
 	// Compare as freeMem < required + buffer to avoid uint64 underflow from subtraction.
-	if freeMem < requiredMemory+minGPUFreeMemory {
+	if freeMem < requiredMemory+defaultGPUMinFreeMemory {
 		return nil, errNotEnoughGPUMemory
 	}
 
@@ -346,27 +346,6 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d, err: %v", device, code, getLastError())
 	}
-
-	// With cudaMallocManaged (unified memory) pages are lazily migrated;
-	// synchronize the device first to force all pages to be reported as resident
-	// before querying free memory, otherwise the reading is unreliable.
-	C.faiss_gpu_sync_all_devices()
-	freeMemPost := getFreeGPUMemory(device)
-	actualUsed := freeMem - freeMemPost
-	diff := int64(actualUsed) - int64(requiredMemory)
-	diffSign := "+"
-	if diff < 0 {
-		diffSign = "-"
-		diff = -diff
-	}
-	fmt.Printf("clone gpu=%-2d  pre=%6.0f MB  est=%6.0f MB  post=%6.0f MB  actual=%6.0f MB  diff=%s%.0f MB\n",
-		device,
-		float64(freeMem)/1024/1024,
-		float64(requiredMemory)/1024/1024,
-		float64(freeMemPost)/1024/1024,
-		float64(actualUsed)/1024/1024,
-		diffSign, float64(diff)/1024/1024,
-	)
 
 	idx := &faissIndex{
 		idx: (*C.FaissIndex)(unsafe.Pointer(gpuIdx)),
