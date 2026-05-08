@@ -299,7 +299,12 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 	// first check if we have enough free memory on the selected GPU before attempting the clone, to avoid unnecessary work and errors.
 	freeMem := getFreeGPUMemory(device)
-	if freeMem < minGPUFreeMemory {
+	// amount of GPU memory required for the index clone
+	requiredMemory := cpuIndex.Size()
+
+	// The GPU must have enough free memory for the index plus a minimum buffer.
+	// Compare as freeMem < required + buffer to avoid uint64 underflow from subtraction.
+	if freeMem < requiredMemory+minGPUFreeMemory {
 		return nil, errNotEnoughGPUMemory
 	}
 
@@ -341,6 +346,27 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d, err: %v", device, code, getLastError())
 	}
+
+	// With cudaMallocManaged (unified memory) pages are lazily migrated;
+	// synchronize the device first to force all pages to be reported as resident
+	// before querying free memory, otherwise the reading is unreliable.
+	C.faiss_gpu_sync_all_devices()
+	freeMemPost := getFreeGPUMemory(device)
+	actualUsed := freeMem - freeMemPost
+	diff := int64(actualUsed) - int64(requiredMemory)
+	diffSign := "+"
+	if diff < 0 {
+		diffSign = "-"
+		diff = -diff
+	}
+	fmt.Printf("clone gpu=%-2d  pre=%6.0f MB  est=%6.0f MB  post=%6.0f MB  actual=%6.0f MB  diff=%s%.0f MB\n",
+		device,
+		float64(freeMem)/1024/1024,
+		float64(requiredMemory)/1024/1024,
+		float64(freeMemPost)/1024/1024,
+		float64(actualUsed)/1024/1024,
+		diffSign, float64(diff)/1024/1024,
+	)
 
 	idx := &faissIndex{
 		idx: (*C.FaissIndex)(unsafe.Pointer(gpuIdx)),
