@@ -68,7 +68,7 @@ var (
 	gpuCount                      int
 	loadBalancer                  *gpuLoadBalancer
 	reflectStaticSizeGPUIndexImpl uint64
-	scheduler                     *gpuScheduler
+	serializer                    *gpuIndexSerializer
 )
 
 func init() {
@@ -86,10 +86,10 @@ func init() {
 		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
 		go loadBalancer.monitor()
 	}
-	// Initialize the GPU scheduler if at least one GPU is available;
+	// Initialize the GPU serializer if at least one GPU is available;
 	// it will be used to serialize access to each GPU device to prevent oversubscription.
 	if gpuCount > 0 {
-		scheduler = newGPUScheduler(gpuCount)
+		serializer = newGPUIndexSerializer(gpuCount)
 	}
 }
 
@@ -211,7 +211,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 }
 
 func getBestGPUDevice() (int, error) {
-	if gpuCount == 0 || scheduler == nil {
+	if gpuCount == 0 || serializer == nil {
 		return 0, errNoGPUDevices
 	}
 	// If loadBalancer is nil, it means we have only 1 GPU, so just return device 0.
@@ -222,25 +222,25 @@ func getBestGPUDevice() (int, error) {
 }
 
 // --------------------------------------------------------------------------------
-// gpuScheduler provides a simple mutex-like mechanism to serialize index clones to
+// gpuIndexSerializer provides a simple mutex-like mechanism to serialize index clones to
 // each GPU device, preventing oversubscription and out-of-memory errors when multiple
 // goroutines attempt to clone to the same GPU at the same time.
-type gpuScheduler struct {
+type gpuIndexSerializer struct {
 	deviceMu []sync.Mutex
 }
 
-func newGPUScheduler(numGPUs int) *gpuScheduler {
-	s := &gpuScheduler{
+func newGPUIndexSerializer(numGPUs int) *gpuIndexSerializer {
+	s := &gpuIndexSerializer{
 		deviceMu: make([]sync.Mutex, numGPUs),
 	}
 	return s
 }
 
-func (s *gpuScheduler) acquire(device int) {
+func (s *gpuIndexSerializer) acquire(device int) {
 	s.deviceMu[device].Lock()
 }
 
-func (s *gpuScheduler) release(device int) {
+func (s *gpuIndexSerializer) release(device int) {
 	s.deviceMu[device].Unlock()
 }
 
@@ -294,13 +294,16 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		return nil, err
 	}
 	// Acquire the GPU resource for the duration of the clone operation to prevent oversubscription.
-	scheduler.acquire(device)
-	defer scheduler.release(device)
+	serializer.acquire(device)
+	defer serializer.release(device)
 
 	// first check if we have enough free memory on the selected GPU before attempting the clone, to avoid unnecessary work and errors.
 	freeMem := getFreeGPUMemory(device)
 	// amount of GPU memory required for the index clone
-	requiredMemory := cpuIndex.Size()
+	requiredMemory, err := cpuIndex.IndexSize()
+	if err != nil {
+		return nil, err
+	}
 
 	// The GPU must have enough free memory for the index plus a minimum buffer.
 	// Compare as freeMem < required + buffer to avoid uint64 underflow from subtraction.
