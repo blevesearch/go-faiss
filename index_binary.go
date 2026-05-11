@@ -13,8 +13,16 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"unsafe"
 )
+
+var reflectStaticSizefaissBinaryIndex uint64
+
+func init() {
+	var f faissBinaryIndex
+	reflectStaticSizefaissBinaryIndex = uint64(reflect.TypeOf(f).Size())
+}
 
 type BinaryIndex interface {
 	// D returns the dimension of the indexed vectors.
@@ -88,12 +96,18 @@ type BinaryIndex interface {
 		centroidsToProbe int, xb []uint8, k int64, include Selector,
 		params json.RawMessage) ([]int32, []int64, error)
 
-	// returns the total size of the index in bytes
+	// Size returns the Go struct size, excluding the C index memory.
+	// Suitable for memory-mapped indexes where the C memory is memory-mapped.
 	Size() uint64
+
+	// IndexSize returns the RAM footprint of the C index as reported by FAISS.
+	// Use this when the index is fully loaded in memory and not memory-mapped.
+	IndexSize() (uint64, error)
 
 	// frees the memory associated with the index
 	Close()
 
+	// bPtr returns a pointer to the underlying C index struct.
 	bPtr() *C.FaissIndexBinary
 }
 
@@ -403,11 +417,15 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 }
 
 func (b *faissBinaryIndex) Size() uint64 {
+	return reflectStaticSizefaissBinaryIndex
+}
+
+func (b *faissBinaryIndex) IndexSize() (uint64, error) {
 	var size C.size_t
 	if code := C.faiss_IndexBinary_size(b.bIdx, &size); code != 0 {
-		return 0
+		return 0, getLastError()
 	}
-	return uint64(size)
+	return uint64(size), nil
 }
 
 func (idx *faissBinaryIndex) Close() {

@@ -14,9 +14,17 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"unsafe"
 )
+
+var reflectStaticSizefaissIndex uint64
+
+func init() {
+	var f faissIndex
+	reflectStaticSizefaissIndex = uint64(reflect.TypeOf(f).Size())
+}
 
 // Index is a Faiss index.
 //
@@ -120,9 +128,15 @@ type Index interface {
 	// Close frees the memory used by the index.
 	Close()
 
-	// consults the C++ side to get the size of the index
+	// Size returns the Go struct size, excluding the C index memory.
+	// Suitable for memory-mapped indexes where the C memory is not RAM-resident.
 	Size() uint64
 
+	// IndexSize returns the RAM footprint of the C index as reported by FAISS.
+	// Use this when the index is fully loaded in memory (e.g. after a GPU clone).
+	IndexSize() (uint64, error)
+
+	// cPtr returns a pointer to the underlying C index struct.
 	cPtr() *C.FaissIndex
 
 	// set the quantizers from a source index into this index, applicable only
@@ -139,11 +153,15 @@ func (idx *faissIndex) cPtr() *C.FaissIndex {
 }
 
 func (idx *faissIndex) Size() uint64 {
+	return reflectStaticSizefaissIndex
+}
+
+func (idx *faissIndex) IndexSize() (uint64, error) {
 	var size C.size_t
 	if code := C.faiss_Index_size(idx.idx, &size); code != 0 {
-		return 0
+		return 0, getLastError()
 	}
-	return uint64(size)
+	return uint64(size), nil
 }
 
 func (idx *faissIndex) D() int {
