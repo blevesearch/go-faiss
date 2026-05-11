@@ -128,12 +128,13 @@ type Index interface {
 	// Close frees the memory used by the index.
 	Close()
 
-	// Size returns the Go struct size, excluding the C index memory.
-	// Suitable for memory-mapped indexes where the C memory is not RAM-resident.
+	// Size estimates the memory footprint of the index assuming in bytes,
+	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
 	Size() uint64
 
-	// IndexSize returns the RAM footprint of the C index as reported by FAISS.
-	// Use this when the index is fully loaded in memory (e.g. after a GPU clone).
+	// IndexSize estimates the RAM footprint of the index in bytes,
+	// if the index is um-mapped and fully loaded into memory.
+	// This is a best effort estimation and may not be exact.
 	IndexSize() (uint64, error)
 
 	// cPtr returns a pointer to the underlying C index struct.
