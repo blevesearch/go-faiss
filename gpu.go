@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -63,11 +64,15 @@ const (
 )
 
 var (
-	gpuCount     int
-	loadBalancer *gpuLoadBalancer
+	gpuCount                      int
+	loadBalancer                  *gpuLoadBalancer
+	reflectStaticSizeGPUIndexImpl uint64
 )
 
 func init() {
+	var f GPUIndexImpl
+	reflectStaticSizeGPUIndexImpl = uint64(reflect.TypeOf(f).Size())
+
 	var err error
 	gpuCount, err = numGPUs()
 	if err != nil || gpuCount <= 0 {
@@ -195,7 +200,6 @@ func getBestGPUDevice() (int, error) {
 	return loadBalancer.nextDevice()
 }
 
-// only expose API used by zapx
 type GPUIndexImpl struct {
 	idx         *faissIndex
 	gpuResource *C.FaissStandardGpuResources
@@ -226,6 +230,10 @@ func (g *GPUIndexImpl) Close() {
 		C.faiss_StandardGpuResources_free(g.gpuResource)
 		g.gpuResource = nil
 	}
+}
+
+func (g *GPUIndexImpl) Size() uint64 {
+	return reflectStaticSizeGPUIndexImpl + g.idx.Size()
 }
 
 // CloneToGPU transfers a CPU index to the best available GPU based on free memory.
