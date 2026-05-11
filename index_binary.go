@@ -96,12 +96,12 @@ type BinaryIndex interface {
 		centroidsToProbe int, xb []uint8, k int64, include Selector,
 		params json.RawMessage) ([]int32, []int64, error)
 
-	// Size estimates the memory footprint of the index assuming in bytes,
+	// Size estimates the memory footprint of the index in bytes
 	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
 	Size() uint64
 
 	// IndexSize estimates the RAM footprint of the index in bytes,
-	// if the index is um-mapped and fully loaded into memory.
+	// if the index is unmapped and fully loaded into memory.
 	// This is a best effort estimation and may not be exact.
 	IndexSize() (uint64, error)
 
