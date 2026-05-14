@@ -22,8 +22,8 @@ import "errors"
 // GPUIndexImpl is an opaque type when not built with GPU support.
 type GPUIndexImpl struct{}
 
-func (g *GPUIndexImpl) Train(x []float32) error { return errGPUNotBuilt }
-func (g *GPUIndexImpl) Add(x []float32) error   { return errGPUNotBuilt }
+func (g *GPUIndexImpl) Train(x []float32) error        { return errGPUNotBuilt }
+func (g *GPUIndexImpl) Add(x []float32) (error, error) { return nil, errGPUNotBuilt }
 func (g *GPUIndexImpl) Search(x []float32, k int64) ([]float32, []int64, error) {
 	return nil, nil, errGPUNotBuilt
 }
