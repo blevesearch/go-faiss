@@ -137,6 +137,9 @@ type Index interface {
 	// This is a best effort estimation and may not be exact.
 	IndexSize() (uint64, error)
 
+	// CodeSize returns the amount of memory in bytes required to store a single vector in the index.
+	CodeSize() (uint64, error)
+
 	// cPtr returns a pointer to the underlying C index struct.
 	cPtr() *C.FaissIndex
 
@@ -163,6 +166,14 @@ func (idx *faissIndex) IndexSize() (uint64, error) {
 		return 0, getLastError()
 	}
 	return uint64(size), nil
+}
+
+func (idx *faissIndex) CodeSize() (uint64, error) {
+	var codeSize C.size_t
+	if code := C.faiss_Index_sa_code_size(idx.idx, &codeSize); code != 0 {
+		return 0, getLastError()
+	}
+	return uint64(codeSize), nil
 }
 
 func (idx *faissIndex) D() int {

@@ -23,6 +23,8 @@ package faiss
 #include <faiss/c_api/gpu/GpuAutoTune_c.h>
 #include <faiss/c_api/gpu/GpuClonerOptions_c.h>
 #include <faiss/c_api/gpu/DeviceUtils_c.h>
+#include <faiss/c_api/gpu/GpuIndex_c.h>
+#include <faiss/c_api/gpu/GpuIndexIVF_c.h>
 */
 import "C"
 import (
@@ -34,7 +36,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 var (
@@ -42,6 +43,10 @@ var (
 	errNilIndex            = errors.New("index is nil")
 	errNoGPUDevices        = errors.New("no GPU devices available")
 	errNotEnoughGPUMemory  = errors.New("selected GPU device does not have enough free memory for cloning")
+	errTrainFailed         = errors.New("training failed on GPU index")
+	errAddFailed           = errors.New("adding vectors failed on GPU index")
+	errMemoryReserveFailed = errors.New("failed to reserve memory on GPU index")
+	errSearchFailed        = errors.New("search failed on GPU index")
 )
 
 // memorySpace controls where GPU index data is allocated.
@@ -65,15 +70,16 @@ const (
 )
 
 var (
-	gpuCount                      int
-	loadBalancer                  *gpuLoadBalancer
-	reflectStaticSizeGPUIndexImpl uint64
-	serializer                    *gpuIndexSerializer
+	gpuCount     int
+	loadBalancer *gpuLoadBalancer
+	serializer   *gpuIndexSerializer
 )
 
+var reflectStaticSizefaissGPUIndex uint64
+
 func init() {
-	var f GPUIndexImpl
-	reflectStaticSizeGPUIndexImpl = uint64(reflect.TypeOf(f).Size())
+	var g faissGPUIndex
+	reflectStaticSizefaissGPUIndex = uint64(reflect.TypeOf(g).Size())
 
 	var err error
 	gpuCount, err = numGPUs()
@@ -111,6 +117,11 @@ func getFreeGPUMemory(device int) uint64 {
 		return uint64(freeBytes)
 	}
 	return 0
+}
+
+// hasEnoughGPUMemory returns true if the GPU has enough free memory for the required allocation plus a buffer.
+func hasEnoughGPUMemory(freeMem, requiredMemory uint64) bool {
+	return freeMem > requiredMemory+defaultGPUMinFreeMemory
 }
 
 // --------------------------------------------------------------------------------
@@ -246,30 +257,104 @@ func (s *gpuIndexSerializer) release(device int) {
 
 // --------------------------------------------------------------------------------
 
-type GPUIndexImpl struct {
-	idx         *faissIndex
+type GPUIndex interface {
+	// D returns the dimension of the indexed vectors.
+	D() int
+	// Add adds vectors to the index.
+	// Resurns two errors:
+	//  - The first error indicates failure to reserve memory for the add operation.
+	//  - The second error indicates failure to add the vectors after successful memory reservation.
+	Add(x []float32) (error, error)
+	// Train trains the index on a representative set of vectors.
+	Train(x []float32) error
+	// Search queries the index with the vectors in x.
+	// Returns the IDs of the k nearest neighbors for each query vector and the
+	// corresponding distances.
+	Search(x []float32, k int64) (distances []float32, labels []int64, err error)
+	// Size estimates the memory footprint of the index assuming in bytes,
+	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
+	Size() uint64
+	// Close frees the memory used by the index.
+	Close()
+	// gPtr returns the underlying C pointer to the FaissGpuIndex.
+	gPtr() *C.FaissGpuIndex
+}
+
+type faissGPUIndex struct {
+	idx         *C.FaissGpuIndex
 	gpuResource *C.FaissStandardGpuResources
+	device      int
+	codeSize    uint64
 }
 
-func (g *GPUIndexImpl) cPtr() *C.FaissIndex {
-	return g.idx.idx
+func (g *faissGPUIndex) gPtr() *C.FaissGpuIndex {
+	return g.idx
 }
 
-func (g *GPUIndexImpl) Train(x []float32) error {
-	return g.idx.Train(x)
+func (g *faissGPUIndex) D() int {
+	return int(C.faiss_GpuIndex_d(g.idx))
 }
 
-func (g *GPUIndexImpl) Add(x []float32) error {
-	return g.idx.Add(x)
+func (g *faissGPUIndex) Add(x []float32) (error, error) {
+	n := len(x) / g.D()
+	// cast to gpu ivf index first
+	var ivfIdx *C.FaissGpuIndexIVF
+	ivfIdx = C.faiss_GpuIndexIVF_cast(g.idx)
+	if ivfIdx != nil {
+		// try to reserve memory for the new vectors first if possible
+		// acquire device lock for memory allocation
+		serializer.acquire(g.device)
+		// early exit path. Use a heuristic to determine the minimum
+		// memory needed to add the vectors before attempting to reserve memory or add to the index,
+		// to avoid unnecessary work and errors when adding a large batch of vectors that exceed GPU memory.
+		requiredMemory := uint64(n) * g.codeSize
+		freeMem := getFreeGPUMemory(g.device)
+		if !hasEnoughGPUMemory(freeMem, requiredMemory) {
+			serializer.release(g.device)
+			return errNotEnoughGPUMemory, nil
+		}
+		// actually reserve the memory on the GPU for the new vectors.
+		if c := C.faiss_GpuIndexIVF_reserve_memory(ivfIdx, C.size_t(n)); c != 0 {
+			serializer.release(g.device)
+			return errMemoryReserveFailed, nil
+		}
+		serializer.release(g.device)
+	}
+	if c := C.faiss_GpuIndex_add(g.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
+		return nil, errAddFailed
+	}
+	return nil, nil
 }
 
-func (g *GPUIndexImpl) Search(x []float32, k int64) ([]float32, []int64, error) {
-	return g.idx.Search(x, k)
+func (g *faissGPUIndex) Train(x []float32) error {
+	n := len(x) / g.D()
+	if c := C.faiss_GpuIndex_train(g.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
+		return errTrainFailed
+	}
+	return nil
 }
 
-func (g *GPUIndexImpl) Close() {
+func (g *faissGPUIndex) Search(x []float32, k int64) ([]float32, []int64, error) {
+	n := len(x) / g.D()
+	distances := make([]float32, int64(n)*k)
+	labels := make([]int64, int64(n)*k)
+	if c := C.faiss_GpuIndex_search(
+		g.idx,
+		C.idx_t(n),
+		(*C.float)(&x[0]),
+		C.idx_t(k),
+		(*C.float)(&distances[0]),
+		(*C.idx_t)(&labels[0]),
+	); c != 0 {
+		return nil, nil, errSearchFailed
+	}
+
+	return distances, labels, nil
+}
+
+func (g *faissGPUIndex) Close() {
 	if g.idx != nil {
-		g.idx.Close()
+		C.faiss_GpuIndex_free(g.idx)
 		g.idx = nil
 	}
 	if g.gpuResource != nil {
@@ -278,8 +363,12 @@ func (g *GPUIndexImpl) Close() {
 	}
 }
 
-func (g *GPUIndexImpl) Size() uint64 {
-	return reflectStaticSizeGPUIndexImpl + g.idx.Size()
+func (g *faissGPUIndex) Size() uint64 {
+	return reflectStaticSizefaissGPUIndex
+}
+
+type GPUIndexImpl struct {
+	GPUIndex
 }
 
 // CloneToGPU transfers a CPU index to the best available GPU based on free memory.
@@ -296,26 +385,21 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	// Acquire the GPU resource for the duration of the clone operation to prevent oversubscription.
 	serializer.acquire(device)
 	defer serializer.release(device)
-
-	// first check if we have enough free memory on the selected GPU before attempting the clone, to avoid unnecessary work and errors.
-	freeMem := getFreeGPUMemory(device)
 	// amount of GPU memory required for the index clone
 	requiredMemory, err := cpuIndex.IndexSize()
 	if err != nil {
 		return nil, err
 	}
-
+	// first check if we have enough free memory on the selected GPU before attempting the clone, to avoid unnecessary work and errors.
+	freeMem := getFreeGPUMemory(device)
 	// The GPU must have enough free memory for the index plus a minimum buffer.
-	// Compare as freeMem < required + buffer to avoid uint64 underflow from subtraction.
-	if freeMem < requiredMemory+defaultGPUMinFreeMemory {
+	if !hasEnoughGPUMemory(freeMem, requiredMemory) {
 		return nil, errNotEnoughGPUMemory
 	}
-
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
 		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
 	}
-
 	// Disable the pre-allocated temp memory pool so that all GPU memory is
 	// available for index data; unified memory mode handles intermediate
 	// allocations via cudaMalloc/cudaFree on demand.
@@ -327,16 +411,13 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to disable GPU pinned memory: error code %d, err: %v", code, getLastError())
 	}
-
 	var clonerOpts *C.FaissGpuClonerOptions
 	if code := C.faiss_GpuClonerOptions_new(&clonerOpts); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to create cloner options: error code %d, err: %v", code, getLastError())
 	}
 	defer C.faiss_GpuClonerOptions_free(clonerOpts)
-
 	C.faiss_GpuClonerOptions_set_memorySpace(clonerOpts, C.int(defaultGPUMemoryMode))
-
 	var gpuIdx *C.FaissGpuIndex
 	code := C.faiss_index_cpu_to_gpu_with_options(
 		gpuResource,
@@ -349,25 +430,27 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 		C.faiss_StandardGpuResources_free(gpuResource)
 		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d, err: %v", device, code, getLastError())
 	}
-
-	idx := &faissIndex{
-		idx: (*C.FaissIndex)(unsafe.Pointer(gpuIdx)),
+	codeSize, err := cpuIndex.CodeSize()
+	if err != nil {
+		C.faiss_StandardGpuResources_free(gpuResource)
+		return nil, err
 	}
-
-	return &GPUIndexImpl{
-		idx:         idx,
+	g := &faissGPUIndex{
+		idx:         gpuIdx,
 		gpuResource: gpuResource,
-	}, nil
+		device:      device,
+		codeSize:    codeSize,
+	}
+	return &GPUIndexImpl{g}, nil
 }
 
 func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 	if gpuIndex == nil {
 		return nil, errNilIndex
 	}
-
 	var cpuIdx *C.FaissIndex
 	code := C.faiss_index_gpu_to_cpu(
-		gpuIndex.cPtr(),
+		gpuIndex.gPtr(),
 		&cpuIdx,
 	)
 	if code != 0 {

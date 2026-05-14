@@ -105,6 +105,9 @@ type BinaryIndex interface {
 	// This is a best effort estimation and may not be exact.
 	IndexSize() (uint64, error)
 
+	// CodeSize returns the amount of memory in bytes required to store a single vector in the index.
+	CodeSize() uint64
+
 	// frees the memory associated with the index
 	Close()
 
@@ -427,6 +430,10 @@ func (b *faissBinaryIndex) IndexSize() (uint64, error) {
 		return 0, getLastError()
 	}
 	return uint64(size), nil
+}
+
+func (b *faissBinaryIndex) CodeSize() uint64 {
+	return uint64(C.faiss_IndexBinary_code_size(b.bIdx))
 }
 
 func (idx *faissBinaryIndex) Close() {
