@@ -19,11 +19,11 @@ import (
 	"unsafe"
 )
 
-var reflectStaticSizefaissIndex uint64
+var reflectStaticSizeFaissIndex uint64
 
 func init() {
 	var f faissIndex
-	reflectStaticSizefaissIndex = uint64(reflect.TypeOf(f).Size())
+	reflectStaticSizeFaissIndex = uint64(reflect.TypeOf(f).Size())
 }
 
 // Index is a Faiss index.
@@ -154,7 +154,12 @@ func (idx *faissIndex) cPtr() *C.FaissIndex {
 }
 
 func (idx *faissIndex) Size() uint64 {
-	return reflectStaticSizefaissIndex
+	rv := reflectStaticSizeFaissIndex
+	var size C.size_t
+	if code := C.faiss_Index_static_size(idx.idx, &size); code == 0 {
+		rv += uint64(size)
+	}
+	return rv
 }
 
 func (idx *faissIndex) IndexSize() (uint64, error) {

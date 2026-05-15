@@ -17,11 +17,11 @@ import (
 	"unsafe"
 )
 
-var reflectStaticSizefaissBinaryIndex uint64
+var reflectStaticSizeFaissBinaryIndex uint64
 
 func init() {
-	var f faissBinaryIndex
-	reflectStaticSizefaissBinaryIndex = uint64(reflect.TypeOf(f).Size())
+	var b faissBinaryIndex
+	reflectStaticSizeFaissBinaryIndex = uint64(reflect.TypeOf(b).Size())
 }
 
 type BinaryIndex interface {
@@ -418,7 +418,12 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 }
 
 func (b *faissBinaryIndex) Size() uint64 {
-	return reflectStaticSizefaissBinaryIndex
+	rv := reflectStaticSizeFaissBinaryIndex
+	var size C.size_t
+	if code := C.faiss_IndexBinary_static_size(b.bIdx, &size); code == 0 {
+		rv += uint64(size)
+	}
+	return rv
 }
 
 func (b *faissBinaryIndex) IndexSize() (uint64, error) {
