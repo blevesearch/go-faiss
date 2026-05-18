@@ -132,11 +132,6 @@ type Index interface {
 	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
 	Size() uint64
 
-	// IndexSize estimates the RAM footprint of the index in bytes,
-	// if the index is unmapped and fully loaded into memory.
-	// This is a best effort estimation and may not be exact.
-	IndexSize() (uint64, error)
-
 	// cPtr returns a pointer to the underlying C index struct.
 	cPtr() *C.FaissIndex
 
@@ -156,18 +151,10 @@ func (idx *faissIndex) cPtr() *C.FaissIndex {
 func (idx *faissIndex) Size() uint64 {
 	rv := reflectStaticSizeFaissIndex
 	var size C.size_t
-	if code := C.faiss_Index_static_size(idx.idx, &size); code == 0 {
+	if code := C.faiss_Index_size(idx.idx, &size); code == 0 {
 		rv += uint64(size)
 	}
 	return rv
-}
-
-func (idx *faissIndex) IndexSize() (uint64, error) {
-	var size C.size_t
-	if code := C.faiss_Index_size(idx.idx, &size); code != 0 {
-		return 0, getLastError()
-	}
-	return uint64(size), nil
 }
 
 func (idx *faissIndex) D() int {

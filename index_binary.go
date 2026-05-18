@@ -100,11 +100,6 @@ type BinaryIndex interface {
 	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
 	Size() uint64
 
-	// IndexSize estimates the RAM footprint of the index in bytes,
-	// if the index is unmapped and fully loaded into memory.
-	// This is a best effort estimation and may not be exact.
-	IndexSize() (uint64, error)
-
 	// frees the memory associated with the index
 	Close()
 
@@ -420,18 +415,10 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 func (b *faissBinaryIndex) Size() uint64 {
 	rv := reflectStaticSizeFaissBinaryIndex
 	var size C.size_t
-	if code := C.faiss_IndexBinary_static_size(b.bIdx, &size); code == 0 {
+	if code := C.faiss_IndexBinary_size(b.bIdx, &size); code == 0 {
 		rv += uint64(size)
 	}
 	return rv
-}
-
-func (b *faissBinaryIndex) IndexSize() (uint64, error) {
-	var size C.size_t
-	if code := C.faiss_IndexBinary_size(b.bIdx, &size); code != 0 {
-		return 0, getLastError()
-	}
-	return uint64(size), nil
 }
 
 func (idx *faissBinaryIndex) Close() {
