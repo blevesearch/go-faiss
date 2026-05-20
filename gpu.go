@@ -170,7 +170,8 @@ func (lb *gpuLoadBalancer) refresh() {
 }
 
 // nextDevice returns the next GPU device in round-robin order.
-// Returns an error if no devices are currently available.
+// Returns an error if no device currently has enough free memory
+// (or all free-memory queries failed in the last refresh).
 func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
@@ -178,7 +179,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 	devices := lb.sortedDevices
 	n := len(devices)
 	if n == 0 {
-		return 0, ErrNoGPUDevices
+		return 0, ErrNoUsableGPUDevices
 	}
 
 	// atomically allocates the GPU. Minus 1 for zero based index
@@ -188,7 +189,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 
 func getBestGPUDevice() (int, error) {
 	if gpuCount == 0 || loadBalancer == nil {
-		return 0, ErrNoGPUDevices
+		return 0, ErrNoUsableGPUDevices
 	}
 	return loadBalancer.nextDevice()
 }
@@ -380,27 +381,27 @@ type gpuResource struct {
 func newGPUResource() (*gpuResource, error) {
 	var res *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&res); code != 0 {
-		return nil, NewError(ErrGPUSetupFailed, int(code))
+		return nil, NewError(ErrGPUContextFailed, int(code))
 	}
 	// Disable temp memory since we may have multiple indexes cloned to the same GPU,
 	// and not disabling temp memory can lead to exhausting GPU memory due to temp
 	// buffers accumulating across multiple clones.
 	if code := C.faiss_StandardGpuResources_noTempMemory(res); code != 0 {
 		C.faiss_StandardGpuResources_free(res)
-		return nil, NewError(ErrGPUSetupFailed, int(code))
+		return nil, NewError(ErrGPUContextFailed, int(code))
 	}
 	// With temp memory disabled, the GPU index will now allocate memory on demand during search operations,
 	// instead of pre-allocating a large temp buffer during cloning. We ensure that this on-demand allocation also
 	// uses the same memory space as the index data by setting the temp memory space to the same value as defaultGPUMemoryMode.
 	if code := C.faiss_StandardGpuResources_setTempMemorySpace(res, C.int(defaultGPUMemoryMode)); code != 0 {
 		C.faiss_StandardGpuResources_free(res)
-		return nil, NewError(ErrGPUSetupFailed, int(code))
+		return nil, NewError(ErrGPUContextFailed, int(code))
 	}
 	// Set the amount of pinned memory to allocate for GPU clone operations; this is the amount of CPU memory that will be pinned
 	// and used as staging buffers for transferring data to the GPU during cloning.
 	if code := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); code != 0 {
 		C.faiss_StandardGpuResources_free(res)
-		return nil, NewError(ErrGPUSetupFailed, int(code))
+		return nil, NewError(ErrGPUContextFailed, int(code))
 	}
 	return &gpuResource{res: res}, nil
 }
@@ -425,7 +426,7 @@ type gpuClonerOptions struct {
 func newGPUClonerOptions() (*gpuClonerOptions, error) {
 	var opts *C.FaissGpuClonerOptions
 	if code := C.faiss_GpuClonerOptions_new(&opts); code != 0 {
-		return nil, NewError(ErrGPUSetupFailed, int(code))
+		return nil, NewError(ErrGPUContextFailed, int(code))
 	}
 	// Set the memory space for the GPU clone operation; this controls where the GPU index data will be allocated.
 	C.faiss_GpuClonerOptions_set_memorySpace(opts, C.int(defaultGPUMemoryMode))
