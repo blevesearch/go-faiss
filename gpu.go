@@ -23,6 +23,8 @@ package faiss
 #include <faiss/c_api/gpu/GpuAutoTune_c.h>
 #include <faiss/c_api/gpu/GpuClonerOptions_c.h>
 #include <faiss/c_api/gpu/DeviceUtils_c.h>
+#include <faiss/c_api/gpu/GpuIndex_c_ex.h>
+#include <faiss/c_api/gpu/GpuIndexIVF_c_ex.h>
 */
 import "C"
 import (
@@ -46,11 +48,11 @@ const (
 )
 
 const (
-	// the minimum amount of free memory that must be available on a GPU to be considered for index cloning.
-	minGPUFreeMemory = 512 * 1024 * 1024 // 512 MiB
-	// the default memory space to use for GPU indices.
+	// keep at least 512 MiB free on the GPU to allow creating and using temporary buffers during search operations.
+	defaultGPUMinFreeMemory = 512 * 1024 * 1024 // 512 MiB
+	// use unified memory by default to avoid out-of-memory errors on GPUs with limited memory.
 	defaultGPUMemoryMode = memorySpaceUnified
-	// the default amount of pinned memory to allocate for each GPU clone operation.
+	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
 	defaultGPUPinnedMemory = 0
 )
 
@@ -81,7 +83,7 @@ func numGPUs() (int, error) {
 	var rv C.int
 	c := C.faiss_get_num_gpus(&rv)
 	if c != 0 {
-		return 0, NewError(ErrGPUOperationFailed, int(c))
+		return 0, NewError(ErrGPUSetupFailed, int(c))
 	}
 	return int(rv), nil
 }
@@ -141,9 +143,9 @@ func (lb *gpuLoadBalancer) refresh() {
 	}
 	wg.Wait()
 
-	// Only include devices that reported non-zero free memory, and have at least minGPUFreeMemory free.
+	// Only include devices that reported non-zero free memory, and have at least defaultGPUMinFreeMemory free.
 	for i, mem := range lb.freeMemory {
-		if mem > minGPUFreeMemory {
+		if mem > defaultGPUMinFreeMemory {
 			lb.scratchDevs = append(lb.scratchDevs, i)
 		}
 	}
