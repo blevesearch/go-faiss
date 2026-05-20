@@ -27,7 +27,8 @@ func (g *GPUIndexImpl) Add(x []float32) error   { return errGPUNotBuilt }
 func (g *GPUIndexImpl) Search(x []float32, k int64) ([]float32, []int64, error) {
 	return nil, nil, errGPUNotBuilt
 }
-func (g *GPUIndexImpl) Close() {}
+func (g *GPUIndexImpl) Close()       {}
+func (g *GPUIndexImpl) Size() uint64 { return 0 }
 
 var errGPUNotBuilt = errors.New("not built with GPU support (requires -tags gpu)")
 

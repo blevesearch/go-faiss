@@ -14,9 +14,17 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"unsafe"
 )
+
+var reflectStaticSizeFaissIndex uint64
+
+func init() {
+	var f faissIndex
+	reflectStaticSizeFaissIndex = uint64(reflect.TypeOf(f).Size())
+}
 
 // Index is a Faiss index.
 //
@@ -120,9 +128,11 @@ type Index interface {
 	// Close frees the memory used by the index.
 	Close()
 
-	// consults the C++ side to get the size of the index
+	// Size estimates the memory footprint of the index in bytes,
+	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
 	Size() uint64
 
+	// cPtr returns a pointer to the underlying C index struct.
 	cPtr() *C.FaissIndex
 
 	// set the quantizers from a source index into this index, applicable only
@@ -139,8 +149,12 @@ func (idx *faissIndex) cPtr() *C.FaissIndex {
 }
 
 func (idx *faissIndex) Size() uint64 {
-	size := C.faiss_Index_size(idx.idx)
-	return uint64(size)
+	rv := reflectStaticSizeFaissIndex
+	var size C.size_t
+	if code := C.faiss_Index_size(idx.idx, &size); code == 0 {
+		rv += uint64(size)
+	}
+	return rv
 }
 
 func (idx *faissIndex) D() int {
