@@ -17,7 +17,7 @@ type ParameterSpace struct {
 func NewParameterSpace() (*ParameterSpace, error) {
 	var ps *C.FaissParameterSpace
 	if c := C.faiss_ParameterSpace_new(&ps); c != 0 {
-		return nil, getLastError()
+		return nil, NewError(ErrCreateParamsFailed, int(c))
 	}
 	return &ParameterSpace{ps}, nil
 }
@@ -33,7 +33,7 @@ func (p *ParameterSpace) SetIndexParameter(idx Index, name string, val float64) 
 	c := C.faiss_ParameterSpace_set_index_parameter(
 		p.ps, idx.cPtr(), cname, C.double(val))
 	if c != 0 {
-		return getLastError()
+		return NewError(ErrCreateParamsFailed, int(c))
 	}
 	return nil
 }
