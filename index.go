@@ -140,7 +140,7 @@ type Index interface {
 	SetQuantizers(source Index) error
 
 	// CodeSize returns the size of the produced codes in bytes.
-	CodeSize() (int, error)
+	CodeSize() (uint64, error)
 }
 
 type faissIndex struct {
@@ -164,12 +164,12 @@ func (idx *faissIndex) D() int {
 	return int(C.faiss_Index_d(idx.idx))
 }
 
-func (idx *faissIndex) CodeSize() (int, error) {
+func (idx *faissIndex) CodeSize() (uint64, error) {
 	var size C.size_t
 	if c := C.faiss_Index_sa_code_size(idx.idx, &size); c != 0 {
 		return 0, getLastError()
 	}
-	return int(size), nil
+	return uint64(size), nil
 }
 
 func (idx *faissIndex) IsTrained() bool {
