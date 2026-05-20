@@ -67,12 +67,12 @@ func (idx *faissIndex) IsSQIndex() bool {
 func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
 	if !(idx.IsIVFIndex() && srcIndex.IsIVFIndex()) &&
 		!(idx.IsSQIndex() && srcIndex.IsSQIndex()) {
-		return ErrSetParamsFailed
+		return ErrSetQuantizerNotSupported
 	}
 
 	srcIndexPtr := srcIndex.cPtr()
 	if srcIndexPtr == nil {
-		return ErrSourceIndexNil
+		return ErrIndexNil
 	}
 
 	c := C.faiss_Set_quantizers(idx.idx, srcIndexPtr)

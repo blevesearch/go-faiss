@@ -55,16 +55,15 @@ var (
 	ErrCreateParamsFailed = errors.New("faiss: create search params failed")
 	ErrSetParamsFailed    = errors.New("faiss: set index params failed")
 
-	// ---- Lifecycle / configuration ----
-	ErrTrainIndexFailed = errors.New("faiss: train index failed")
-	ErrResetIndexFailed = errors.New("faiss: reset index failed")
-
 	// ---- Vector ops ----
-	ErrAddFailed         = errors.New("faiss: add vectors failed")
-	ErrSearchFailed      = errors.New("faiss: search index failed")
-	ErrReconstructFailed = errors.New("faiss: reconstruct vector failed")
-	ErrMergeFromFailed   = errors.New("faiss: merge from index failed")
-	ErrRemoveIDsFailed   = errors.New("faiss: remove ids failed")
+	ErrAddFailed          = errors.New("faiss: add vectors failed")
+	ErrTrainIndexFailed   = errors.New("faiss: train index failed")
+	ErrSearchFailed       = errors.New("faiss: search index failed")
+	ErrReconstructFailed  = errors.New("faiss: reconstruct vector failed")
+	ErrResetIndexFailed   = errors.New("faiss: reset index failed")
+	ErrSetQuantizerFailed = errors.New("faiss: set quantizer failed")
+	ErrMergeFromFailed    = errors.New("faiss: merge from index failed")
+	ErrRemoveIDsFailed    = errors.New("faiss: remove ids failed")
 
 	// ---- Read-only index introspection (NOT search) ----
 	ErrInspectIndexFailed = errors.New("faiss: inspect index failed")
@@ -78,11 +77,13 @@ var (
 	ErrGPUCloneFailed     = errors.New("faiss: gpu clone failed")
 	ErrNoGPUDevices       = errors.New("faiss: no gpu devices available")
 
-	// ---- State / pre-condition (declarative; no "Failed" suffix) ----
-	ErrNotIVFIndex           = errors.New("faiss: index is not an ivf index")
-	ErrNotBIVFIndex          = errors.New("faiss: index is not a binary ivf index")
-	ErrMergeFromNotSupported = errors.New("faiss: merge from not supported for this index type")
-	ErrSourceIndexNil        = errors.New("faiss: source index is nil")
-	ErrIndexNil              = errors.New("faiss: index is nil")
-	ErrSelectorNil           = errors.New("faiss: selector is nil")
+	// ---- State / pre-condition errors ----
+	ErrNotIVFIndex  = errors.New("faiss: index is not an ivf index")
+	ErrNotBIVFIndex = errors.New("faiss: index is not a binary ivf index")
+	ErrIndexNil     = errors.New("faiss: index is nil")
+	ErrSelectorNil  = errors.New("faiss: selector is nil")
+
+	// ---- Unsupported operations ----
+	ErrMergeFromNotSupported    = errors.New("faiss: merge from is only supported for IVF indices")
+	ErrSetQuantizerNotSupported = errors.New("faiss: set quantizer not supported for this index type")
 )

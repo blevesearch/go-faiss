@@ -449,34 +449,24 @@ func BinaryIndexFactory(dims int, description string) (*BinaryIndexImpl, error) 
 	if c := C.faiss_index_binary_factory(&idx.bIdx, C.int(dims), cDescription); c != 0 {
 		return nil, NewError(ErrCreateIndexFailed, int(c))
 	}
-
 	return &BinaryIndexImpl{&idx}, nil
 }
 
 func (idx *faissBinaryIndex) SetQuantizers(srcIndex BinaryIndex) error {
-	bivf := C.faiss_IndexBinaryIVF_cast(idx.bPtr())
-	if bivf == nil {
-		return ErrNotBIVFIndex
+	if !(idx.IsIVFIndex() && srcIndex.IsIVFIndex()) {
+		return ErrSetQuantizerNotSupported
 	}
-
-	srcIndexPtr := srcIndex.bPtr()
-	if srcIndexPtr == nil {
-		return ErrSourceIndexNil
-	}
-
-	c := C.faiss_Set_quantizers_binary(idx.bIdx, srcIndexPtr)
+	c := C.faiss_Set_quantizers_binary(idx.bIdx, srcIndex.bPtr())
 	if c != 0 {
-		return NewError(ErrSetParamsFailed, int(c))
+		return NewError(ErrSetQuantizerFailed, int(c))
 	}
-
 	return nil
 }
 
 func (idx *faissBinaryIndex) MergeFrom(other BinaryIndex, add_id int64) (err error) {
-	if !idx.IsIVFIndex() && !other.IsIVFIndex() {
+	if !(idx.IsIVFIndex() && other.IsIVFIndex()) {
 		return ErrMergeFromNotSupported
 	}
-
 	if c := C.faiss_IndexBinaryIVF_merge_from(
 		idx.bPtr(),
 		other.bPtr(),
@@ -484,6 +474,5 @@ func (idx *faissBinaryIndex) MergeFrom(other BinaryIndex, add_id int64) (err err
 	); c != 0 {
 		err = NewError(ErrMergeFromFailed, int(c))
 	}
-
 	return err
 }
