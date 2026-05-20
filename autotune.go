@@ -33,7 +33,7 @@ func (p *ParameterSpace) SetIndexParameter(idx Index, name string, val float64) 
 	c := C.faiss_ParameterSpace_set_index_parameter(
 		p.ps, idx.cPtr(), cname, C.double(val))
 	if c != 0 {
-		return NewError(ErrCreateParamsFailed, int(c))
+		return NewError(ErrSetParamsFailed, int(c))
 	}
 	return nil
 }

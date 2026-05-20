@@ -29,12 +29,12 @@ func (idx *faissIndex) GetSubIndex() (Index, error) {
 
 	ptr := C.faiss_IndexIDMap2_cast(idx.cPtr())
 	if ptr == nil {
-		return nil, ErrNotIVFIndex
+		return nil, ErrNotIDMapIndex
 	}
 
 	subIdx := C.faiss_IndexIDMap2_sub_index(ptr)
 	if subIdx == nil {
-		return nil, ErrNotIVFIndex
+		return nil, ErrNotIDMapIndex
 	}
 
 	return &IndexImpl{&faissIndex{subIdx}}, nil
@@ -69,16 +69,9 @@ func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
 		!(idx.IsSQIndex() && srcIndex.IsSQIndex()) {
 		return ErrSetQuantizerNotSupported
 	}
-
-	srcIndexPtr := srcIndex.cPtr()
-	if srcIndexPtr == nil {
-		return ErrIndexNil
-	}
-
-	c := C.faiss_Set_quantizers(idx.idx, srcIndexPtr)
+	c := C.faiss_Set_quantizers(idx.idx, srcIndex.cPtr())
 	if c != 0 {
-		return NewError(ErrSetParamsFailed, int(c))
+		return NewError(ErrSetQuantizerFailed, int(c))
 	}
-
 	return nil
 }

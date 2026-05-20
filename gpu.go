@@ -242,7 +242,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
-		return nil, NewError(ErrGPUOperationFailed, int(code))
+		return nil, NewError(ErrGPUCloneFailed, int(code))
 	}
 
 	// Disable the pre-allocated temp memory pool so that all GPU memory is
@@ -250,17 +250,17 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	// allocations via cudaMalloc/cudaFree on demand.
 	if code := C.faiss_StandardGpuResources_noTempMemory(gpuResource); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUOperationFailed, int(code))
+		return nil, NewError(ErrGPUCloneFailed, int(code))
 	}
 	if code := C.faiss_StandardGpuResources_setPinnedMemory(gpuResource, C.size_t(defaultGPUPinnedMemory)); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUOperationFailed, int(code))
+		return nil, NewError(ErrGPUCloneFailed, int(code))
 	}
 
 	var clonerOpts *C.FaissGpuClonerOptions
 	if code := C.faiss_GpuClonerOptions_new(&clonerOpts); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUOperationFailed, int(code))
+		return nil, NewError(ErrGPUCloneFailed, int(code))
 	}
 	defer C.faiss_GpuClonerOptions_free(clonerOpts)
 

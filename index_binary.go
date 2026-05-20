@@ -173,7 +173,7 @@ func (b *faissBinaryIndex) Train(x []uint8) error {
 	n := (len(x) * 8) / b.D()
 	if c := C.faiss_IndexBinary_train(b.bIdx, C.idx_t(n),
 		(*C.uint8_t)(&x[0])); c != 0 {
-		return NewError(ErrTrainIndexFailed, int(c))
+		return NewError(ErrTrainFailed, int(c))
 	}
 	return nil
 }

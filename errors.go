@@ -57,7 +57,7 @@ var (
 
 	// ---- Vector ops ----
 	ErrAddFailed          = errors.New("faiss: add vectors failed")
-	ErrTrainIndexFailed   = errors.New("faiss: train index failed")
+	ErrTrainFailed        = errors.New("faiss: train index failed")
 	ErrSearchFailed       = errors.New("faiss: search index failed")
 	ErrReconstructFailed  = errors.New("faiss: reconstruct vector failed")
 	ErrResetIndexFailed   = errors.New("faiss: reset index failed")
@@ -73,15 +73,15 @@ var (
 	ErrReadIndexFailed  = errors.New("faiss: read index failed")
 
 	// ---- GPU ----
-	ErrGPUOperationFailed = errors.New("faiss: gpu operation failed")
-	ErrGPUCloneFailed     = errors.New("faiss: gpu clone failed")
-	ErrNoGPUDevices       = errors.New("faiss: no gpu devices available")
+	ErrNoGPUDevices   = errors.New("faiss: no gpu devices available")
+	ErrGPUCloneFailed = errors.New("faiss: gpu operation failed")
 
 	// ---- State / pre-condition errors ----
-	ErrNotIVFIndex  = errors.New("faiss: index is not an ivf index")
-	ErrNotBIVFIndex = errors.New("faiss: index is not a binary ivf index")
-	ErrIndexNil     = errors.New("faiss: index is nil")
-	ErrSelectorNil  = errors.New("faiss: selector is nil")
+	ErrIndexNil      = errors.New("faiss: index is nil")
+	ErrSelectorNil   = errors.New("faiss: selector is nil")
+	ErrNotIDMapIndex = errors.New("faiss: index is not an idmap index")
+	ErrNotIVFIndex   = errors.New("faiss: index is not an ivf index")
+	ErrNotBIVFIndex  = errors.New("faiss: index is not a binary ivf index")
 
 	// ---- Unsupported operations ----
 	ErrMergeFromNotSupported    = errors.New("faiss: merge from is only supported for IVF indices")
