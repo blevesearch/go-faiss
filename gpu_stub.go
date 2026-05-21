@@ -29,7 +29,7 @@ func (g *GPUIndexImpl) Close()       {}
 func (g *GPUIndexImpl) Size() uint64 { return 0 }
 
 // CloneToGPU is not available without the gpu build tag.
-func CloneToGPU(_ *IndexImpl) (*GPUIndexImpl, error) {
+func CloneToGPU(cpuIndex *IndexImpl, size uint64) (*GPUIndexImpl, error) {
 	return nil, ErrNoUsableGPUDevices
 }
 

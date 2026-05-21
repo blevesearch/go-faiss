@@ -282,9 +282,9 @@ type GPUIndexImpl struct {
 	GPUIndex
 }
 
-// CloneToGPU transfers a CPU index to the best
-// available GPU based on free memory.
-func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
+// CloneToGPU clones cpuIndex onto a GPU and returns the resulting index.
+// Size is the expected memory footprint in the GPU of the index in bytes.
+func CloneToGPU(cpuIndex *IndexImpl, size uint64) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
 		return nil, ErrIndexNil
 	}
