@@ -94,6 +94,11 @@ func getBestGPUDevice() (*gpuSnapshot, error) {
 	if gpuCount == 0 || loadBalancer == nil {
 		return nil, ErrNoUsableGPUDevices
 	}
+	if gpuCount == 1 {
+		// if there's only one GPU, just return its snapshot
+		// without going through the load balancer logic.
+		return loadBalancer.snapshotForDevice(0), nil
+	}
 	return loadBalancer.nextSnapshot(), nil
 }
 
