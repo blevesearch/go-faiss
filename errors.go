@@ -73,8 +73,8 @@ var (
 	ErrReadIndexFailed  = errors.New("faiss: read index failed")
 
 	// ---- GPU ----
-	ErrNoUsableGPUDevices = errors.New("faiss: no gpu devices available")
-	ErrGPUCloneFailed     = errors.New("faiss: gpu operation failed")
+	ErrNoUsableGPUDevices = errors.New("faiss: no gpu usable devices available")
+	ErrGPUCloneFailed     = errors.New("faiss: gpu clone failed")
 	ErrGPUSetupFailed     = errors.New("faiss: gpu setup failed")
 
 	// ---- State / pre-condition errors ----
