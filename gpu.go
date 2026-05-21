@@ -82,7 +82,7 @@ func numGPUs() (int, error) {
 	var rv C.int
 	c := C.faiss_get_num_gpus(&rv)
 	if c != 0 {
-		return 0, NewError(ErrGPUOperationFailed, int(c))
+		return 0, NewError(ErrGPUSetupFailed, int(c))
 	}
 	return int(rv), nil
 }
@@ -177,7 +177,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 	devices := lb.sortedDevices
 	n := len(devices)
 	if n == 0 {
-		return 0, ErrNoGPUDevices
+		return 0, ErrNoUsableGPUDevices
 	}
 
 	// atomically allocates the GPU. Minus 1 for zero based index
@@ -187,7 +187,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 
 func getBestGPUDevice() (int, error) {
 	if gpuCount == 0 || loadBalancer == nil {
-		return 0, ErrNoGPUDevices
+		return 0, ErrNoUsableGPUDevices
 	}
 	return loadBalancer.nextDevice()
 }

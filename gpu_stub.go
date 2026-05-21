@@ -20,20 +20,20 @@ package faiss
 // GPUIndexImpl is an opaque type when not built with GPU support.
 type GPUIndexImpl struct{}
 
-func (g *GPUIndexImpl) Train(x []float32) error { return ErrNoGPUDevices }
-func (g *GPUIndexImpl) Add(x []float32) error   { return ErrNoGPUDevices }
+func (g *GPUIndexImpl) Train(x []float32) error { return ErrNoUsableGPUDevices }
+func (g *GPUIndexImpl) Add(x []float32) error   { return ErrNoUsableGPUDevices }
 func (g *GPUIndexImpl) Search(x []float32, k int64) ([]float32, []int64, error) {
-	return nil, nil, ErrNoGPUDevices
+	return nil, nil, ErrNoUsableGPUDevices
 }
 func (g *GPUIndexImpl) Close()       {}
 func (g *GPUIndexImpl) Size() uint64 { return 0 }
 
 // CloneToGPU is not available without the gpu build tag.
 func CloneToGPU(_ *IndexImpl) (*GPUIndexImpl, error) {
-	return nil, ErrNoGPUDevices
+	return nil, ErrNoUsableGPUDevices
 }
 
 // CloneToCPU is not available without the gpu build tag.
 func CloneToCPU(_ *GPUIndexImpl) (*IndexImpl, error) {
-	return nil, ErrNoGPUDevices
+	return nil, ErrNoUsableGPUDevices
 }
