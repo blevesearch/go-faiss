@@ -53,11 +53,14 @@ const (
 	defaultGPUMemoryMode = memorySpaceUnified
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
 	defaultGPUPinnedMemory = 0
+	// refresh the order in which GPUs are assigned every 500ms.
+	defaultGPULoadBalancerInterval = 500 * time.Millisecond
 )
 
 var (
 	gpuCount                       int
 	loadBalancer                   *gpuLoadBalancer
+	snapshotStore                  *gpuSnapshotStore
 	reflectStaticSizeFaissGPUIndex uint64
 )
 
@@ -75,8 +78,11 @@ func init() {
 		gpuCount = 0
 	}
 	if gpuCount > 0 {
-		loadBalancer = newGPULoadBalancer(500 * time.Millisecond)
-		go loadBalancer.monitor()
+		snapshotStore = newGPUSnapshotStore(true)
+		if gpuCount > 1 {
+			loadBalancer = newGPULoadBalancer()
+			go loadBalancer.monitor()
+		}
 	}
 }
 
@@ -90,40 +96,33 @@ func numGPUs() (int, error) {
 	return int(rv), nil
 }
 
-func getBestGPUDevice() (*gpuSnapshot, error) {
-	if gpuCount == 0 || loadBalancer == nil {
-		return nil, ErrNoUsableGPUDevices
+func getBestGPUDevice() (int, error) {
+	if gpuCount == 0 {
+		return 0, ErrNoUsableGPUDevices
 	}
 	if gpuCount == 1 {
 		// if there's only one GPU, just return its snapshot
 		// without going through the load balancer logic.
-		return loadBalancer.snapshotForDevice(0), nil
+		return 0, nil
 	}
-	return loadBalancer.nextSnapshot(), nil
-}
-
-func snapshotForDevice(device int) (*gpuSnapshot, error) {
-	if gpuCount == 0 || loadBalancer == nil {
-		return nil, ErrNoUsableGPUDevices
-	}
-	return loadBalancer.snapshotForDevice(device), nil
+	return loadBalancer.nextDevice(), nil
 }
 
 // ---------------------------------
 // GPU Snapshot
 // ---------------------------------
 
-// gpuSnapshot is a per-device, per-refresh-cycle view of GPU state.
+// gpuSnapshot is a per-device view of GPU state.
 type gpuSnapshot struct {
-	// GPU device id this snapshot describes. Immutable for the snapshot's lifetime.
+	// GPU device id this snapshot describes.
 	device int
-	// Free memory in bytes in the GPU at the time of the last refresh.
+	// Free memory in bytes in the GPU.
 	freeMem atomic.Uint64
 }
 
-func newGPUSnapshot(device int, freeMem uint64) *gpuSnapshot {
+func newGPUSnapshot(device int) *gpuSnapshot {
 	s := &gpuSnapshot{device: device}
-	s.freeMem.Store(freeMem)
+	s.freeMem.Store(0)
 	return s
 }
 
@@ -146,8 +145,15 @@ func (s *gpuSnapshot) reserveMemory(required uint64) error {
 	}
 }
 
-func (s *gpuSnapshot) update(other *gpuSnapshot) {
-	s.setFreeMemory(other.freeMemory())
+// release adds the given size in bytes back to the snapshot's free memory.
+func (s *gpuSnapshot) releaseMemory(released uint64) {
+	for {
+		cur := s.freeMemory()
+		after := cur + released
+		if s.freeMem.CompareAndSwap(cur, after) {
+			return
+		}
+	}
 }
 
 func (s *gpuSnapshot) setFreeMemory(freeMem uint64) {
@@ -169,59 +175,92 @@ func (s *gpuSnapshot) compare(other *gpuSnapshot) int {
 	return 1
 }
 
-func (s *gpuSnapshot) reset() {
-	s.freeMem.Store(0)
+func (s *gpuSnapshot) copyTo(other *gpuSnapshot) {
+	other.device = s.device
+	other.setFreeMemory(s.freeMemory())
+}
+
+// ---------------------------------
+// GPU Snapshot Store
+// ---------------------------------
+
+// gpuSnapshotStore maintains a mapping of GPU device id to its snapshot,
+// providing thread-safe access and updates to GPU state information.
+type gpuSnapshotStore struct {
+	// device -> snapshot immutable mapping
+	// snapshot[i] always describes device i,
+	// where i goes from 0 to gpuCount-1.
+	snapshots []*gpuSnapshot
+}
+
+func newGPUSnapshotStore(init bool) *gpuSnapshotStore {
+	snapshots := make([]*gpuSnapshot, gpuCount)
+	if !init {
+		for i := 0; i < gpuCount; i++ {
+			snapshots[i] = newGPUSnapshot(i)
+		}
+		return &gpuSnapshotStore{snapshots: snapshots}
+	}
+	var wg sync.WaitGroup
+	wg.Add(gpuCount)
+	for i := 0; i < gpuCount; i++ {
+		go func(device int) {
+			defer wg.Done()
+			snapshots[device] = newGPUSnapshot(device)
+			var freeBytes C.size_t
+			if C.faiss_gpu_free_memory(C.int(device), &freeBytes) == 0 {
+				snapshots[device].setFreeMemory(uint64(freeBytes))
+			}
+		}(i)
+	}
+	wg.Wait()
+	return &gpuSnapshotStore{snapshots: snapshots}
+}
+
+func (s *gpuSnapshotStore) snapshotForDevice(device int) *gpuSnapshot {
+	return s.snapshots[device]
+}
+
+func (s *gpuSnapshotStore) copyTo(other *gpuSnapshotStore) {
+	for i := 0; i < gpuCount; i++ {
+		s.snapshots[i].copyTo(other.snapshots[i])
+	}
+}
+
+func (s *gpuSnapshotStore) compare(i, j int) int {
+	return s.snapshots[i].compare(s.snapshots[j])
 }
 
 // ---------------------------------
 // GPU Load Balancer
 // ---------------------------------
 
-// gpuLoadBalancer serves two purposes:
-//   - It maintains an up-to-date snapshot of each GPU by periodically querying the GPUs.
-//   - In multi-GPU setups, it distributes GPU clone operations across devices in a round-robin manner
-//     while optimizing to always select the best GPU.
+// gpuLoadBalancer distributes GPU allotments in a round-robin manner
+// in multi-GPU setups, while optimizing to always select the best GPU.
 type gpuLoadBalancer struct {
-	interval time.Duration
-	cursor   atomic.Uint32
-	mu       sync.RWMutex
-	// device -> snapshot immutable mapping
-	// snapshot[i] always describes device i,
-	// where i goes from 0 to gpuCount-1.
-	snapshots []*gpuSnapshot
-	// order represents the best order to allocate GPUs
-	// in round-robin, with the most appealing GPU at
-	// the front of the order.
-	order []int
-	// scratch slices
-	scratchSnapshots []*gpuSnapshot
-	scratchOrder     []int
+	cursor       atomic.Uint32
+	mu           sync.RWMutex
+	order        []int
+	scratchOrder []int
+	scratchStore *gpuSnapshotStore
 }
 
-func newGPULoadBalancer(interval time.Duration) *gpuLoadBalancer {
+func newGPULoadBalancer() *gpuLoadBalancer {
 	lb := &gpuLoadBalancer{
-		interval:         interval,
-		snapshots:        make([]*gpuSnapshot, gpuCount),
-		order:            make([]int, gpuCount),
-		scratchSnapshots: make([]*gpuSnapshot, gpuCount),
-		scratchOrder:     make([]int, gpuCount),
+		order:        make([]int, gpuCount),
+		scratchOrder: make([]int, gpuCount),
+		scratchStore: newGPUSnapshotStore(false),
 	}
-	// initialize the snapshot list and populate them in refresh
-	// before the monitor starts ticking, so that nextSnapshot
-	// can return a valid snapshot immediately.
 	for i := 0; i < gpuCount; i++ {
-		lb.snapshots[i] = newGPUSnapshot(i, 0)
 		lb.order[i] = i
-		lb.scratchSnapshots[i] = newGPUSnapshot(i, 0)
 		lb.scratchOrder[i] = i
 	}
-	lb.refresh()
 	return lb
 }
 
 // monitor periodically refreshes the GPU snapshots.
 func (lb *gpuLoadBalancer) monitor() {
-	ticker := time.NewTicker(lb.interval)
+	ticker := time.NewTicker(defaultGPULoadBalancerInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		lb.refresh()
@@ -230,32 +269,12 @@ func (lb *gpuLoadBalancer) monitor() {
 
 // refresh updates the load balancer's GPU snapshots by querying each GPU.
 func (lb *gpuLoadBalancer) refresh() {
-	// reset scratch before querying.
-	for i := 0; i < gpuCount; i++ {
-		lb.scratchSnapshots[i].reset()
-		lb.scratchOrder[i] = i
-	}
-	// populate the scratch snapshots with the latest GPU state.
-	var wg sync.WaitGroup
-	wg.Add(gpuCount)
-	for i := 0; i < gpuCount; i++ {
-		go func(device int) {
-			defer wg.Done()
-			var freeBytes C.size_t
-			if C.faiss_gpu_free_memory(C.int(device), &freeBytes) == 0 {
-				lb.scratchSnapshots[device].setFreeMemory(uint64(freeBytes))
-			}
-		}(i)
-	}
-	wg.Wait()
+	// refresh the scratch snapshots with the latest GPU state.
+	snapshotStore.copyTo(lb.scratchStore)
 	// Sort in descending order
 	slices.SortFunc(lb.scratchOrder, func(i, j int) int {
-		return lb.scratchSnapshots[j].compare(lb.scratchSnapshots[i])
+		return lb.scratchStore.compare(j, i)
 	})
-	// update the real snapshots by copying from the scratch snapshots
-	for i := 0; i < gpuCount; i++ {
-		lb.snapshots[i].update(lb.scratchSnapshots[i])
-	}
 	// acquire lock to update the real order and reset the round-robin index,
 	// ensuring that the next allocation cycle uses the updated order and
 	// starts from the most appealing GPU.
@@ -265,20 +284,15 @@ func (lb *gpuLoadBalancer) refresh() {
 	lb.cursor.Store(0)
 }
 
-// nextSnapshot returns the next GPU snapshot in round-robin order.
-func (lb *gpuLoadBalancer) nextSnapshot() *gpuSnapshot {
+// nextDevice returns the next GPU device in round-robin order.
+func (lb *gpuLoadBalancer) nextDevice() int {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
-	// atomically allocates the GPU. Minus 1 for zero based index
-	idx := lb.cursor.Add(1) - 1
-	selectedDevice := lb.order[int(idx%uint32(gpuCount))]
-	return lb.snapshots[selectedDevice]
-}
-
-func (lb *gpuLoadBalancer) snapshotForDevice(device int) *gpuSnapshot {
-	// don't need to acquire lock here as we are not accessing
-	// the order slice, and the snapshot to device mapping is immutable.
-	return lb.snapshots[device]
+	// atomically allocates the GPU.
+	// Minus 1 for zero based index and modulo by gpuCount to wrap around.
+	idx := (lb.cursor.Add(1) - 1) % uint32(gpuCount)
+	// return the device id corresponding to the allocated GPU.
+	return lb.order[idx]
 }
 
 // --------------------------------
@@ -317,16 +331,10 @@ func (g *faissGPUIndex) D() int {
 }
 
 func (g *faissGPUIndex) Add(x []float32) error {
-	// get the snapshot for the GPU device this index resides on,
-	// and attempt to reserve the required memory for the add operation.
-	snapshot, err := snapshotForDevice(g.ctx.deviceID())
-	if err != nil {
-		return err
-	}
 	n := len(x) / g.D()
 	// First reserve the required memory for the add operation against the snapshot.
 	requiredMem := uint64(n) * g.ctx.codeSizeBytes()
-	if err := snapshot.reserveMemory(requiredMem); err != nil {
+	if err := g.ctx.reserveMemory(requiredMem); err != nil {
 		return err
 	}
 	// Execute the actual reserve operation against the GPU index.
@@ -334,10 +342,12 @@ func (g *faissGPUIndex) Add(x []float32) error {
 	if ivfIdx != nil {
 		// actually reserve the memory on the GPU for the new vectors.
 		if c := C.faiss_GpuIndexIVF_reserve_memory(ivfIdx, C.size_t(n)); c != 0 {
+			g.ctx.releaseMemory(requiredMem)
 			return ErrGPUOutOfMemory
 		}
 	}
 	if c := C.faiss_GpuIndex_add(g.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
+		g.ctx.releaseMemory(requiredMem)
 		return NewError(ErrAddFailed, int(c))
 	}
 	return nil
@@ -399,12 +409,8 @@ func CloneToGPU(cpuIndex *IndexImpl, size uint64) (*GPUIndexImpl, error) {
 		return nil, ErrIndexNil
 	}
 	// Use the load balancer to select the best GPU device's current snapshot.
-	snapshot, err := getBestGPUDevice()
+	device, err := getBestGPUDevice()
 	if err != nil {
-		return nil, err
-	}
-	// Reserve the expected footprint against the snapshot
-	if err := snapshot.reserveMemory(size); err != nil {
 		return nil, err
 	}
 	// Get the code size of the index to set up the context
@@ -413,15 +419,20 @@ func CloneToGPU(cpuIndex *IndexImpl, size uint64) (*GPUIndexImpl, error) {
 		return nil, err
 	}
 	// Create the GPU context with the selected device.
-	ctx, err := newGPUContext(snapshot.device, codeSize)
+	ctx, err := newGPUContext(device, codeSize)
 	if err != nil {
+		return nil, err
+	}
+	// Reserve memory for the index against the GPU snapshot.
+	if err := ctx.reserveMemory(size); err != nil {
+		ctx.delete()
 		return nil, err
 	}
 	// Clone the index to GPU
 	var gpuIdx *C.FaissGpuIndex
 	code := C.faiss_index_cpu_to_gpu_with_options(
 		ctx.resource.cPtr(),
-		C.int(snapshot.device),
+		C.int(device),
 		cpuIndex.cPtr(),
 		ctx.options.cPtr(),
 		&gpuIdx,
@@ -458,10 +469,11 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 
 // gpuContext provides the context for the GPU clone operation.
 type gpuContext struct {
-	resource *gpuResource
-	options  *gpuClonerOptions
-	device   int
-	codeSize uint64
+	resource    *gpuResource
+	options     *gpuClonerOptions
+	device      int
+	codeSize    uint64
+	memReserved uint64
 }
 
 func newGPUContext(device int, codeSize uint64) (*gpuContext, error) {
@@ -491,14 +503,29 @@ func (c *gpuContext) delete() {
 		c.resource.delete()
 		c.resource = nil
 	}
-}
-
-func (c *gpuContext) deviceID() int {
-	return c.device
+	if c.memReserved > 0 {
+		c.releaseMemory(c.memReserved)
+		c.memReserved = 0
+	}
 }
 
 func (c *gpuContext) codeSizeBytes() uint64 {
 	return c.codeSize
+}
+
+func (c *gpuContext) reserveMemory(size uint64) error {
+	snapshot := snapshotStore.snapshotForDevice(c.device)
+	if err := snapshot.reserveMemory(size); err != nil {
+		return err
+	}
+	c.memReserved += size
+	return nil
+}
+
+func (c *gpuContext) releaseMemory(size uint64) {
+	snapshot := snapshotStore.snapshotForDevice(c.device)
+	snapshot.releaseMemory(size)
+	c.memReserved -= size
 }
 
 // gpuResource wraps a FAISS standard GPU resources handle.
