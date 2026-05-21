@@ -101,9 +101,6 @@ func snapshotForDevice(device int) (*gpuSnapshot, error) {
 	if gpuCount == 0 || loadBalancer == nil {
 		return nil, ErrNoUsableGPUDevices
 	}
-	if device < 0 || device >= gpuCount {
-		return nil, ErrNoUsableGPUDevices
-	}
 	return loadBalancer.snapshotForDevice(device), nil
 }
 
