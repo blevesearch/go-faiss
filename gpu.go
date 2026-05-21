@@ -194,7 +194,6 @@ func getBestGPUDevice() (int, error) {
 	return loadBalancer.nextDevice()
 }
 
-// ---------------------------------------------------
 // GPU Index interface
 type GPUIndex interface {
 	// D returns the dimension of the indexed vectors.
@@ -216,7 +215,6 @@ type GPUIndex interface {
 	gPtr() *C.FaissGpuIndex
 }
 
-// ---------------------------------------------------
 // faissGPUIndex concrete implementation of GPUIndex.
 type faissGPUIndex struct {
 	idx *C.FaissGpuIndex
@@ -284,7 +282,6 @@ type GPUIndexImpl struct {
 	GPUIndex
 }
 
-// ---------------------------------------------------
 // CloneToGPU transfers a CPU index to the best
 // available GPU based on free memory.
 func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
@@ -304,10 +301,10 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	// Clone the index to GPU
 	var gpuIdx *C.FaissGpuIndex
 	code := C.faiss_index_cpu_to_gpu_with_options(
-		ctx.res.cPtr(),
+		ctx.resource.cPtr(),
 		C.int(device),
 		cpuIndex.cPtr(),
-		ctx.opt.cPtr(),
+		ctx.options.cPtr(),
 		&gpuIdx,
 	)
 	if code != 0 {
@@ -336,12 +333,11 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 	return &IndexImpl{&faissIndex{idx: cpuIdx}}, nil
 }
 
-// ---------------------------------------------------
 // gpuContext provides the context for the GPU clone operation.
 type gpuContext struct {
-	res    *gpuResource
-	opt    *gpuClonerOptions
-	device int
+	resource *gpuResource
+	options  *gpuClonerOptions
+	device   int
 }
 
 func newGPUContext(device int) (*gpuContext, error) {
@@ -355,24 +351,23 @@ func newGPUContext(device int) (*gpuContext, error) {
 		return nil, err
 	}
 	return &gpuContext{
-		res:    res,
-		opt:    clonerOpts,
-		device: device,
+		resource: res,
+		options:  clonerOpts,
+		device:   device,
 	}, nil
 }
 
 func (c *gpuContext) delete() {
-	if c.opt != nil {
-		c.opt.delete()
-		c.opt = nil
+	if c.options != nil {
+		c.options.delete()
+		c.options = nil
 	}
-	if c.res != nil {
-		c.res.delete()
-		c.res = nil
+	if c.resource != nil {
+		c.resource.delete()
+		c.resource = nil
 	}
 }
 
-// ---------------------------------------------------
 // gpuResource wraps a FAISS standard GPU resources handle.
 type gpuResource struct {
 	res *C.FaissStandardGpuResources
@@ -417,7 +412,6 @@ func (r *gpuResource) delete() {
 	}
 }
 
-// ---------------------------------------------------
 // gpuClonerOptions wraps a FAISS GPU cloner options handle.
 type gpuClonerOptions struct {
 	opts *C.FaissGpuClonerOptions
