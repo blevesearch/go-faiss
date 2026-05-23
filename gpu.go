@@ -468,8 +468,7 @@ type GPUIndexImpl struct {
 }
 
 // CloneToGPU clones cpuIndex onto a GPU and returns the resulting index.
-// Size is the expected memory footprint in the GPU of the index in bytes.
-func CloneToGPU(cpuIndex *IndexImpl, size uint64) (*GPUIndexImpl, error) {
+func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
 		return nil, ErrIndexNil
 	}
@@ -489,7 +488,8 @@ func CloneToGPU(cpuIndex *IndexImpl, size uint64) (*GPUIndexImpl, error) {
 		return nil, err
 	}
 	// Reserve memory for the index against the GPU snapshot.
-	if err := ctx.reserveMemory(size); err != nil {
+	// TODO @capemox -> pass in the correct size here.
+	if err := ctx.reserveMemory(0); err != nil {
 		ctx.delete()
 		return nil, err
 	}
