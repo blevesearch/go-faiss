@@ -332,22 +332,12 @@ func (g *faissGPUIndex) D() int {
 
 func (g *faissGPUIndex) Add(x []float32) error {
 	n := len(x) / g.D()
-	// First reserve the required memory for the add operation against the snapshot.
-	requiredMem := uint64(n) * g.ctx.codeSizeBytes()
-	if err := g.ctx.reserveMemory(requiredMem); err != nil {
+	reservedMem, err := g.prepareAdd(x)
+	if err != nil {
 		return err
 	}
-	// Execute the actual reserve operation against the GPU index.
-	ivfIdx := C.faiss_GpuIndexIVF_cast(g.idx)
-	if ivfIdx != nil {
-		// actually reserve the memory on the GPU for the new vectors.
-		if c := C.faiss_GpuIndexIVF_reserve_memory(ivfIdx, C.size_t(n)); c != 0 {
-			g.ctx.releaseMemory(requiredMem)
-			return ErrGPUOutOfMemory
-		}
-	}
 	if c := C.faiss_GpuIndex_add(g.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		g.ctx.releaseMemory(requiredMem)
+		g.ctx.releaseMemory(reservedMem)
 		return NewError(ErrAddFailed, int(c))
 	}
 	return nil
@@ -396,6 +386,81 @@ func (g *faissGPUIndex) Size() uint64 {
 
 func (g *faissGPUIndex) gPtr() *C.FaissGpuIndex {
 	return g.idx
+}
+
+// prepareAdd performs the necessary steps to prepare the GPU index for adding new vectors,
+// including calculating the required memory for the new vectors based on their assignments
+// and reserving that memory in the GPU snapshot.
+// It returns the amount of memory reserved if no error occurs, or an error if the reservation fails.
+func (g *faissGPUIndex) prepareAdd(x []float32) (uint64, error) {
+	// number of vectors to add
+	n := len(x) / g.D()
+	// fallback estimate of required memory based on code size,
+	// used for non-IVF indexes or if assignment fails.
+	requiredMem := uint64(n) * g.ctx.codeSize()
+	// For IVF Indexes, we follow the following algorithm to
+	// calculate the required memory for the new vectors to be added:
+	// 1. Get the list assignment for each vector to be added.
+	// 2. Count the number of vectors assigned to each list.
+	// 3. Calculate the required memory for the new vectors based on their assignments.
+	// 4. Reserve the required memory in the GPU snapshot.
+	// 5. Actually reserve the memory on the GPU for the new vectors based on their assignments.
+	ivfIdx := C.faiss_GpuIndexIVF_cast(g.idx)
+	if ivfIdx != nil {
+		// 1. list assignment for each vector.
+		assign := make([]int64, n)
+		if c := C.faiss_GpuIndexIVF_assign(
+			ivfIdx,
+			C.idx_t(n),
+			(*C.float)(&x[0]),
+			(*C.idx_t)(&assign[0]),
+		); c != 0 {
+			if err := g.ctx.reserveMemory(requiredMem); err != nil {
+				return 0, err
+			}
+			return requiredMem, nil
+		}
+		// 2. find the list count for the assigned vectors.
+		nlist := uint64(C.faiss_GpuIndexIVF_nlist(ivfIdx))
+		listCount := make([]int64, nlist)
+		for _, a := range assign {
+			if a >= 0 && a < int64(nlist) {
+				listCount[a]++
+			}
+		}
+		// 3. compute required memory for the new vectors based on their assignments.
+		var size C.size_t
+		if c := C.faiss_GpuIndexIVF_compute_required_memory(
+			ivfIdx,
+			C.size_t(nlist),
+			(*C.idx_t)(&listCount[0]),
+			&size,
+		); c != 0 {
+			if err := g.ctx.reserveMemory(requiredMem); err != nil {
+				return 0, err
+			}
+			return requiredMem, nil
+		}
+		// 4. update our snapshot.
+		requiredMem = uint64(size)
+		if err := g.ctx.reserveMemory(requiredMem); err != nil {
+			return 0, err
+		}
+		// 5. reserve on GPU.
+		if c := C.faiss_GpuIndexIVF_reserve_assigned_memory(
+			ivfIdx,
+			C.size_t(nlist),
+			(*C.idx_t)(&listCount[0]),
+		); c != 0 {
+			g.ctx.releaseMemory(requiredMem)
+			return 0, NewError(ErrGPUOutOfMemory, int(c))
+		}
+		return requiredMem, nil
+	}
+	if err := g.ctx.reserveMemory(requiredMem); err != nil {
+		return 0, err
+	}
+	return requiredMem, nil
 }
 
 type GPUIndexImpl struct {
@@ -469,11 +534,11 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 
 // gpuContext provides the context for the GPU clone operation.
 type gpuContext struct {
-	resource    *gpuResource
-	options     *gpuClonerOptions
-	device      int
-	codeSize    uint64
-	memReserved uint64
+	resource     *gpuResource
+	options      *gpuClonerOptions
+	device       int
+	code_size    uint64
+	mem_reserved uint64
 }
 
 func newGPUContext(device int, codeSize uint64) (*gpuContext, error) {
@@ -487,10 +552,10 @@ func newGPUContext(device int, codeSize uint64) (*gpuContext, error) {
 		return nil, err
 	}
 	return &gpuContext{
-		resource: res,
-		options:  clonerOpts,
-		device:   device,
-		codeSize: codeSize,
+		resource:  res,
+		options:   clonerOpts,
+		device:    device,
+		code_size: codeSize,
 	}, nil
 }
 
@@ -503,14 +568,10 @@ func (c *gpuContext) delete() {
 		c.resource.delete()
 		c.resource = nil
 	}
-	if c.memReserved > 0 {
-		c.releaseMemory(c.memReserved)
-		c.memReserved = 0
+	if c.mem_reserved > 0 {
+		c.releaseMemory(c.mem_reserved)
+		c.mem_reserved = 0
 	}
-}
-
-func (c *gpuContext) codeSizeBytes() uint64 {
-	return c.codeSize
 }
 
 func (c *gpuContext) reserveMemory(size uint64) error {
@@ -518,14 +579,22 @@ func (c *gpuContext) reserveMemory(size uint64) error {
 	if err := snapshot.reserveMemory(size); err != nil {
 		return err
 	}
-	c.memReserved += size
+	c.mem_reserved += size
 	return nil
 }
 
 func (c *gpuContext) releaseMemory(size uint64) {
 	snapshot := snapshotStore.snapshotForDevice(c.device)
 	snapshot.releaseMemory(size)
-	c.memReserved -= size
+	c.mem_reserved -= size
+}
+
+func (c *gpuContext) codeSize() uint64 {
+	return c.code_size
+}
+
+func (c *gpuContext) memReserved() uint64 {
+	return c.mem_reserved
 }
 
 // gpuResource wraps a FAISS standard GPU resources handle.
