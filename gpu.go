@@ -101,7 +101,7 @@ func getBestGPUDevice() (int, error) {
 		return 0, ErrNoUsableGPUDevices
 	}
 	if gpuCount == 1 {
-		// if there's only one GPU, just return its snapshot
+		// if there's only one GPU, just return it
 		// without going through the load balancer logic.
 		return 0, nil
 	}
@@ -147,13 +147,7 @@ func (s *gpuSnapshot) reserveMemory(required uint64) error {
 
 // release adds the given size in bytes back to the snapshot's free memory.
 func (s *gpuSnapshot) releaseMemory(released uint64) {
-	for {
-		cur := s.freeMemory()
-		after := cur + released
-		if s.freeMem.CompareAndSwap(cur, after) {
-			return
-		}
-	}
+	atomic.AddUint64(&s.freeMem, released)
 }
 
 func (s *gpuSnapshot) setFreeMemory(freeMem uint64) {
@@ -564,13 +558,13 @@ func (c *gpuContext) delete() {
 		c.options.delete()
 		c.options = nil
 	}
-	if c.resource != nil {
-		c.resource.delete()
-		c.resource = nil
-	}
 	if c.mem_reserved > 0 {
 		c.releaseMemory(c.mem_reserved)
 		c.mem_reserved = 0
+	}
+	if c.resource != nil {
+		c.resource.delete()
+		c.resource = nil
 	}
 }
 
