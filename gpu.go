@@ -330,7 +330,11 @@ func (g *faissGPUIndex) Add(x []float32) error {
 	if err != nil {
 		return err
 	}
-	if c := C.faiss_GpuIndex_add(g.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
+	if c := C.faiss_GpuIndex_add(
+		g.idx, 
+		C.idx_t(n), 
+		(*C.float)(&x[0])
+	); c != 0 {
 		g.ctx.releaseMemory(reservedMem)
 		return NewError(ErrAddFailed, int(c))
 	}
@@ -339,7 +343,11 @@ func (g *faissGPUIndex) Add(x []float32) error {
 
 func (g *faissGPUIndex) Train(x []float32) error {
 	n := len(x) / g.D()
-	if c := C.faiss_GpuIndex_train(g.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
+	if c := C.faiss_GpuIndex_train(
+		g.idx, 
+		C.idx_t(n), 
+		(*C.float)(&x[0])
+	); c != 0 {
 		return NewError(ErrTrainFailed, int(c))
 	}
 	return nil
