@@ -38,45 +38,45 @@ func newFaissError(errType, err error, errCode int) error {
 // FAISS error types for categorizing errors returned by the C API.
 var (
 	// ---- Construction ----
-	ErrCreateIndexFailed    = errors.New("faiss: create index failed")
-	ErrCreateSelectorFailed = errors.New("faiss: create selector failed")
+	ErrCreateIndexFailed    = errors.New("create index failed")
+	ErrCreateSelectorFailed = errors.New("create selector failed")
 
 	// ---- Configuration ----
-	ErrCreateParamsFailed = errors.New("faiss: create search params failed")
-	ErrSetParamsFailed    = errors.New("faiss: set index params failed")
+	ErrCreateParamsFailed = errors.New("create search params failed")
+	ErrSetParamsFailed    = errors.New("set index params failed")
 
 	// ---- Vector ops ----
-	ErrAddFailed          = errors.New("faiss: add vectors failed")
-	ErrTrainFailed        = errors.New("faiss: train index failed")
-	ErrSearchFailed       = errors.New("faiss: search index failed")
-	ErrReconstructFailed  = errors.New("faiss: reconstruct vector failed")
-	ErrResetIndexFailed   = errors.New("faiss: reset index failed")
-	ErrSetQuantizerFailed = errors.New("faiss: set quantizer failed")
-	ErrMergeFromFailed    = errors.New("faiss: merge from index failed")
-	ErrRemoveIDsFailed    = errors.New("faiss: remove IDs failed")
+	ErrAddFailed          = errors.New("add vectors failed")
+	ErrTrainFailed        = errors.New("train index failed")
+	ErrSearchFailed       = errors.New("search index failed")
+	ErrReconstructFailed  = errors.New("reconstruct vector failed")
+	ErrResetIndexFailed   = errors.New("reset index failed")
+	ErrSetQuantizerFailed = errors.New("set quantizer failed")
+	ErrMergeFromFailed    = errors.New("merge from index failed")
+	ErrRemoveIDsFailed    = errors.New("remove IDs failed")
 
 	// ---- Read-only index introspection ----
-	ErrInspectIndexFailed = errors.New("faiss: inspect index failed")
+	ErrInspectIndexFailed = errors.New("inspect index failed")
 
 	// ---- I/O ----
-	ErrWriteIndexFailed = errors.New("faiss: write index failed")
-	ErrReadIndexFailed  = errors.New("faiss: read index failed")
+	ErrWriteIndexFailed = errors.New("write index failed")
+	ErrReadIndexFailed  = errors.New("read index failed")
 
 	// ---- GPU ----
-	ErrNoUsableGPUDevices = errors.New("faiss: no GPU usable devices available")
-	ErrGPUCloneFailed     = errors.New("faiss: GPU clone failed")
-	ErrGPUSetupFailed     = errors.New("faiss: GPU setup failed")
+	ErrNoUsableGPUDevices = errors.New("no GPU usable devices available")
+	ErrGPUCloneFailed     = errors.New("GPU clone failed")
+	ErrGPUSetupFailed     = errors.New("GPU setup failed")
 
 	// ---- State / pre-condition errors ----
-	ErrIndexNil      = errors.New("faiss: index is nil")
-	ErrSelectorNil   = errors.New("faiss: selector is nil")
-	ErrNotIDMapIndex = errors.New("faiss: index is not an IDMap index")
-	ErrNotIVFIndex   = errors.New("faiss: index is not an IVF index")
-	ErrNotBIVFIndex  = errors.New("faiss: index is not a binary IVF index")
+	ErrIndexNil      = errors.New("index is nil")
+	ErrSelectorNil   = errors.New("selector is nil")
+	ErrNotIDMapIndex = errors.New("index is not an IDMap index")
+	ErrNotIVFIndex   = errors.New("index is not an IVF index")
+	ErrNotBIVFIndex  = errors.New("index is not a binary IVF index")
 
 	// ---- Unsupported operations ----
-	ErrMergeFromNotSupported    = errors.New("faiss: merge from is only supported for IVF indices")
-	ErrSetQuantizerNotSupported = errors.New("faiss: set quantizer not supported for this index type")
+	ErrMergeFromNotSupported    = errors.New("merge from is only supported for IVF indices")
+	ErrSetQuantizerNotSupported = errors.New("set quantizer not supported for this index type")
 )
 
 // getLastError returns the last error message set by the FAISS C API.
