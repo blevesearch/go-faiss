@@ -27,6 +27,7 @@ func (e *faissError) Unwrap() error {
 	return e.errType
 }
 
+// create a new faissError with the given error type, underlying error, and error code.
 func newFaissError(errType, err error, errCode int) error {
 	return &faissError{
 		errType: errType,
@@ -38,14 +39,17 @@ func newFaissError(errType, err error, errCode int) error {
 // FAISS error types for categorizing errors returned by the C API.
 var (
 	// ---- Construction ----
+
 	ErrCreateIndexFailed    = errors.New("create index failed")
 	ErrCreateSelectorFailed = errors.New("create selector failed")
 
 	// ---- Configuration ----
+
 	ErrCreateParamsFailed = errors.New("create search params failed")
 	ErrSetParamsFailed    = errors.New("set index params failed")
 
 	// ---- Vector ops ----
+
 	ErrAddFailed          = errors.New("add vectors failed")
 	ErrTrainFailed        = errors.New("train index failed")
 	ErrSearchFailed       = errors.New("search index failed")
@@ -56,18 +60,22 @@ var (
 	ErrRemoveIDsFailed    = errors.New("remove IDs failed")
 
 	// ---- Read-only index introspection ----
+
 	ErrInspectIndexFailed = errors.New("inspect index failed")
 
 	// ---- I/O ----
+
 	ErrWriteIndexFailed = errors.New("write index failed")
 	ErrReadIndexFailed  = errors.New("read index failed")
 
 	// ---- GPU ----
+
 	ErrNoUsableGPUDevices = errors.New("no GPU usable devices available")
 	ErrGPUCloneFailed     = errors.New("GPU clone failed")
 	ErrGPUSetupFailed     = errors.New("GPU setup failed")
 
 	// ---- State / pre-condition errors ----
+
 	ErrIndexNil      = errors.New("index is nil")
 	ErrSelectorNil   = errors.New("selector is nil")
 	ErrNotIDMapIndex = errors.New("index is not an IDMap index")
@@ -75,6 +83,7 @@ var (
 	ErrNotBIVFIndex  = errors.New("index is not a binary IVF index")
 
 	// ---- Unsupported operations ----
+
 	ErrMergeFromNotSupported    = errors.New("merge from is only supported for IVF indices")
 	ErrSetQuantizerNotSupported = errors.New("set quantizer not supported for this index type")
 )
