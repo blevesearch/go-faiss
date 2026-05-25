@@ -26,8 +26,6 @@ package faiss
 */
 import "C"
 import (
-	"errors"
-	"fmt"
 	"math/rand"
 	"reflect"
 	"sort"
@@ -35,12 +33,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
-)
-
-var (
-	errAccessingGPUDevices = errors.New("error accessing GPU devices")
-	errNilIndex            = errors.New("index is nil")
-	errNoGPUDevices        = errors.New("no GPU devices available")
 )
 
 // memorySpace controls where GPU index data is allocated.
@@ -90,7 +82,7 @@ func numGPUs() (int, error) {
 	var rv C.int
 	c := C.faiss_get_num_gpus(&rv)
 	if c != 0 {
-		return 0, fmt.Errorf("error getting number of GPUs, err: %v", getLastError())
+		return 0, newFaissError(ErrGPUSetupFailed, getLastError(), int(c))
 	}
 	return int(rv), nil
 }
@@ -185,7 +177,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 	devices := lb.sortedDevices
 	n := len(devices)
 	if n == 0 {
-		return 0, errAccessingGPUDevices
+		return 0, ErrNoUsableGPUDevices
 	}
 
 	// atomically allocates the GPU. Minus 1 for zero based index
@@ -195,7 +187,7 @@ func (lb *gpuLoadBalancer) nextDevice() (int, error) {
 
 func getBestGPUDevice() (int, error) {
 	if gpuCount == 0 || loadBalancer == nil {
-		return 0, errNoGPUDevices
+		return 0, ErrNoUsableGPUDevices
 	}
 	return loadBalancer.nextDevice()
 }
@@ -239,7 +231,7 @@ func (g *GPUIndexImpl) Size() uint64 {
 // CloneToGPU transfers a CPU index to the best available GPU based on free memory.
 func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if cpuIndex == nil {
-		return nil, errNilIndex
+		return nil, ErrIndexNil
 	}
 
 	// Use the load balancer to select the best GPU device
@@ -250,7 +242,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
-		return nil, fmt.Errorf("failed to initialize GPU resources: error code %d, err: %v", code, getLastError())
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 
 	// Disable the pre-allocated temp memory pool so that all GPU memory is
@@ -258,17 +250,17 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	// allocations via cudaMalloc/cudaFree on demand.
 	if code := C.faiss_StandardGpuResources_noTempMemory(gpuResource); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, fmt.Errorf("failed to disable GPU temp memory: error code %d, err: %v", code, getLastError())
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 	if code := C.faiss_StandardGpuResources_setPinnedMemory(gpuResource, C.size_t(defaultGPUPinnedMemory)); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, fmt.Errorf("failed to disable GPU pinned memory: error code %d, err: %v", code, getLastError())
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 
 	var clonerOpts *C.FaissGpuClonerOptions
 	if code := C.faiss_GpuClonerOptions_new(&clonerOpts); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, fmt.Errorf("failed to create cloner options: error code %d, err: %v", code, getLastError())
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 	defer C.faiss_GpuClonerOptions_free(clonerOpts)
 
@@ -284,7 +276,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	)
 	if code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, fmt.Errorf("failed to transfer index to GPU device %d: error code %d, err: %v", device, code, getLastError())
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 
 	idx := &faissIndex{
@@ -299,7 +291,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 	if gpuIndex == nil {
-		return nil, errNilIndex
+		return nil, ErrIndexNil
 	}
 
 	var cpuIdx *C.FaissIndex
@@ -308,7 +300,7 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 		&cpuIdx,
 	)
 	if code != 0 {
-		return nil, fmt.Errorf("failed to transfer index to CPU: %v", getLastError())
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 	return &IndexImpl{&faissIndex{idx: cpuIdx}}, nil
 }
