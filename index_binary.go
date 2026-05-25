@@ -105,6 +105,9 @@ type BinaryIndex interface {
 
 	// bPtr returns a pointer to the underlying C index struct.
 	bPtr() *C.FaissIndexBinary
+
+	// CodeSize returns the size of the produced codes in bytes.
+	CodeSize() (uint64, error)
 }
 
 type faissBinaryIndex struct {
@@ -419,6 +422,14 @@ func (b *faissBinaryIndex) Size() uint64 {
 		rv += uint64(size)
 	}
 	return rv
+}
+
+func (b *faissBinaryIndex) CodeSize() (uint64, error) {
+	var size C.size_t
+	if c := C.faiss_IndexBinary_sa_code_size(b.bIdx, &size); c != 0 {
+		return 0, getLastError()
+	}
+	return uint64(size), nil
 }
 
 func (idx *faissBinaryIndex) Close() {
