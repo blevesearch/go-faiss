@@ -39,7 +39,7 @@ func newFaissError(errType, err error, errCode int) error {
 var (
 	// ---- Construction ----
 	ErrCreateIndexFailed    = errors.New("faiss: create index failed")
-	ErrCreateSelectorFailed = errors.New("faiss: create id selector failed")
+	ErrCreateSelectorFailed = errors.New("faiss: create selector failed")
 
 	// ---- Configuration ----
 	ErrCreateParamsFailed = errors.New("faiss: create search params failed")
@@ -53,7 +53,7 @@ var (
 	ErrResetIndexFailed   = errors.New("faiss: reset index failed")
 	ErrSetQuantizerFailed = errors.New("faiss: set quantizer failed")
 	ErrMergeFromFailed    = errors.New("faiss: merge from index failed")
-	ErrRemoveIDsFailed    = errors.New("faiss: remove ids failed")
+	ErrRemoveIDsFailed    = errors.New("faiss: remove IDs failed")
 
 	// ---- Read-only index introspection ----
 	ErrInspectIndexFailed = errors.New("faiss: inspect index failed")
@@ -63,16 +63,16 @@ var (
 	ErrReadIndexFailed  = errors.New("faiss: read index failed")
 
 	// ---- GPU ----
-	ErrNoUsableGPUDevices = errors.New("faiss: no gpu usable devices available")
-	ErrGPUCloneFailed     = errors.New("faiss: gpu clone failed")
-	ErrGPUSetupFailed     = errors.New("faiss: gpu setup failed")
+	ErrNoUsableGPUDevices = errors.New("faiss: no GPU usable devices available")
+	ErrGPUCloneFailed     = errors.New("faiss: GPU clone failed")
+	ErrGPUSetupFailed     = errors.New("faiss: GPU setup failed")
 
 	// ---- State / pre-condition errors ----
 	ErrIndexNil      = errors.New("faiss: index is nil")
 	ErrSelectorNil   = errors.New("faiss: selector is nil")
-	ErrNotIDMapIndex = errors.New("faiss: index is not an idmap index")
-	ErrNotIVFIndex   = errors.New("faiss: index is not an ivf index")
-	ErrNotBIVFIndex  = errors.New("faiss: index is not a binary ivf index")
+	ErrNotIDMapIndex = errors.New("faiss: index is not an IDMap index")
+	ErrNotIVFIndex   = errors.New("faiss: index is not an IVF index")
+	ErrNotBIVFIndex  = errors.New("faiss: index is not a binary IVF index")
 
 	// ---- Unsupported operations ----
 	ErrMergeFromNotSupported    = errors.New("faiss: merge from is only supported for IVF indices")
