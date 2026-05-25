@@ -24,10 +24,7 @@ func (e *faissError) Error() string {
 // returns the error type which can allow usage of
 // errors.Is and errors.As for error handling.
 func (e *faissError) Unwrap() error {
-	if e.err != nil {
-		return e.errType
-	}
-	return nil
+	return e.errType
 }
 
 func newFaissError(errType, err error, errCode int) error {
