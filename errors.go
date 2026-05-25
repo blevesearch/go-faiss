@@ -18,7 +18,7 @@ type faissError struct {
 }
 
 func (e *faissError) Error() string {
-	return fmt.Sprintf("faiss error: %v (code: %d, type: %v)", e.err, e.errCode, e.errType)
+	return fmt.Sprintf("faiss %s: %s (code %d)", e.errType, e.err, e.errCode)
 }
 
 // returns the error type which can allow usage of
@@ -84,7 +84,7 @@ var (
 
 	// ---- Unsupported operations ----
 
-	ErrMergeFromNotSupported    = errors.New("merge from is only supported for IVF indices")
+	ErrMergeFromNotSupported    = errors.New("merge from is not supported for this index type")
 	ErrSetQuantizerNotSupported = errors.New("set quantizer not supported for this index type")
 )
 
