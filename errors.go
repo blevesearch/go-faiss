@@ -74,7 +74,7 @@ var (
 	ErrGPUCloneFailed     = errors.New("GPU clone failed")
 	ErrGPUSetupFailed     = errors.New("GPU setup failed")
 	ErrGPUContextFailed   = errors.New("GPU context init failed")
-	ErrGPUOutOfMemory     = errors.New("faiss: gpu out of memory")
+	ErrGPUOutOfMemory     = errors.New("GPU out of memory")
 
 	// ---- State / pre-condition errors ----
 

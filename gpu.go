@@ -58,11 +58,12 @@ const (
 )
 
 var (
-	gpuCount                       int
-	loadBalancer                   *gpuLoadBalancer
-	snapshotStore                  *gpuSnapshotStore
-	reflectStaticSizeFaissGPUIndex uint64
+	gpuCount      int
+	loadBalancer  *gpuLoadBalancer
+	snapshotStore *gpuSnapshotStore
 )
+
+var reflectStaticSizeFaissGPUIndex uint64
 
 // --------------------------------
 // GPU Setup
@@ -331,9 +332,9 @@ func (g *faissGPUIndex) Add(x []float32) error {
 		return err
 	}
 	if c := C.faiss_GpuIndex_add(
-		g.idx, 
-		C.idx_t(n), 
-		(*C.float)(&x[0])
+		g.idx,
+		C.idx_t(n),
+		(*C.float)(&x[0]),
 	); c != 0 {
 		g.ctx.releaseMemory(reservedMem)
 		return newFaissError(ErrAddFailed, getLastError(), int(c))
@@ -344,9 +345,9 @@ func (g *faissGPUIndex) Add(x []float32) error {
 func (g *faissGPUIndex) Train(x []float32) error {
 	n := len(x) / g.D()
 	if c := C.faiss_GpuIndex_train(
-		g.idx, 
-		C.idx_t(n), 
-		(*C.float)(&x[0])
+		g.idx,
+		C.idx_t(n),
+		(*C.float)(&x[0]),
 	); c != 0 {
 		return newFaissError(ErrTrainFailed, getLastError(), int(c))
 	}
@@ -455,7 +456,7 @@ func (g *faissGPUIndex) prepareAdd(x []float32) (uint64, error) {
 			(*C.idx_t)(&listCount[0]),
 		); c != 0 {
 			g.ctx.releaseMemory(requiredMem)
-			return 0, NewError(ErrGPUOutOfMemory, int(c))
+			return 0, newFaissError(ErrGPUOutOfMemory, getLastError(), int(c))
 		}
 		return requiredMem, nil
 	}
