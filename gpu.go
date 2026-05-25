@@ -532,16 +532,15 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	}
 	// Clone the index to GPU
 	var gpuIdx *C.FaissGpuIndex
-	code := C.faiss_index_cpu_to_gpu_with_options(
+	if c := C.faiss_index_cpu_to_gpu_with_options(
 		ctx.resource.cPtr(),
 		C.int(device),
 		cpuIndex.cPtr(),
 		ctx.options.cPtr(),
 		&gpuIdx,
-	)
-	if code != 0 {
+	); c != 0 {
 		ctx.delete()
-		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(c))
 	}
 	idx := &faissGPUIndex{
 		idx: gpuIdx,
@@ -555,12 +554,11 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 		return nil, ErrIndexNil
 	}
 	var cpuIdx *C.FaissIndex
-	code := C.faiss_index_gpu_to_cpu(
+	if c := C.faiss_index_gpu_to_cpu(
 		gpuIndex.gPtr(),
 		&cpuIdx,
-	)
-	if code != 0 {
-		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
+	); c != 0 {
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(c))
 	}
 	return &IndexImpl{&faissIndex{idx: cpuIdx}}, nil
 }
@@ -641,28 +639,28 @@ type gpuResource struct {
 
 func newGPUResource() (*gpuResource, error) {
 	var res *C.FaissStandardGpuResources
-	if code := C.faiss_StandardGpuResources_new(&res); code != 0 {
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(code))
+	if c := C.faiss_StandardGpuResources_new(&res); c != 0 {
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
 	// Disable temp memory since we may have multiple indexes cloned to the same GPU,
 	// and not disabling temp memory can lead to exhausting GPU memory due to temp
 	// buffers accumulating across multiple clones.
-	if code := C.faiss_StandardGpuResources_noTempMemory(res); code != 0 {
+	if c := C.faiss_StandardGpuResources_noTempMemory(res); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(code))
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
 	// With temp memory disabled, the GPU index will now allocate memory on demand during search operations,
 	// instead of pre-allocating a large temp buffer during cloning. We ensure that this on-demand allocation also
 	// uses the same memory space as the index data by setting the temp memory space to the same value as defaultGPUMemoryMode.
-	if code := C.faiss_StandardGpuResources_setTempMemorySpace(res, C.int(defaultGPUMemoryMode)); code != 0 {
+	if c := C.faiss_StandardGpuResources_setTempMemorySpace(res, C.int(defaultGPUMemoryMode)); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(code))
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
 	// Set the amount of pinned memory to allocate for GPU clone operations; this is the amount of CPU memory that will be pinned
 	// and used as staging buffers for transferring data to the GPU during cloning.
-	if code := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); code != 0 {
+	if c := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(code))
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
 	return &gpuResource{res: res}, nil
 }
@@ -685,8 +683,8 @@ type gpuClonerOptions struct {
 
 func newGPUClonerOptions() (*gpuClonerOptions, error) {
 	var opts *C.FaissGpuClonerOptions
-	if code := C.faiss_GpuClonerOptions_new(&opts); code != 0 {
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(code))
+	if c := C.faiss_GpuClonerOptions_new(&opts); c != 0 {
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
 	// Set the memory space for the GPU clone operation; this controls where the GPU index data will be allocated.
 	C.faiss_GpuClonerOptions_set_memorySpace(opts, C.int(defaultGPUMemoryMode))
