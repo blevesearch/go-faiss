@@ -48,7 +48,7 @@ const (
 
 const (
 	// keep at least 512 MiB free on the GPU to allow creating and using temporary buffers during search operations.
-	defaultGPUMinFreeMemory = 512 * 1024 * 1024 // 512 MiB
+	defaultGPUMinFreeMemory = 512 * 1024 * 1024
 	// use unified memory by default to avoid out-of-memory errors on GPUs with limited memory.
 	defaultGPUMemoryMode = memorySpaceUnified
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
@@ -79,7 +79,7 @@ func init() {
 		gpuCount = 0
 	}
 	if gpuCount > 0 {
-		snapshotStore = newGPUSnapshotStore(true)
+		snapshotStore = newGPUSnapshotStore()
 		if gpuCount > 1 {
 			loadBalancer = newGPULoadBalancer()
 			go loadBalancer.monitor()
@@ -117,22 +117,26 @@ func getBestGPUDevice() (int, error) {
 type gpuSnapshot struct {
 	// GPU device id this snapshot describes.
 	device int
+	// Total memory in bytes in the GPU.
+	totalMem uint64
 	// Free memory in bytes in the GPU.
 	freeMem atomic.Uint64
 }
 
-func newGPUSnapshot(device int) *gpuSnapshot {
-	s := &gpuSnapshot{device: device}
-	s.freeMem.Store(0)
+// newGPUSnapshot creates a new gpuSnapshot for the given device.
+// assumed that the total memory available is also the initial free memory.
+func newGPUSnapshot(device int, totMemory uint64) *gpuSnapshot {
+	s := &gpuSnapshot{device: device, totalMem: totMemory}
+	s.setFreeMemory(totMemory)
 	return s
 }
 
 // reserve attempts to reserve the given size in bytes against the snapshot's free memory.
 // it ensures that atleast defaultGPUMinFreeMemory bytes remain free after the reservation, and returns
 // ErrGPUOutOfMemory if the reservation cannot be fulfilled.
-func (s *gpuSnapshot) reserveMemory(required uint64) error {
+func (gs *gpuSnapshot) reserveMemory(required uint64) error {
 	for {
-		cur := s.freeMemory()
+		cur := gs.freeMemory()
 		if required > cur {
 			return ErrGPUOutOfMemory
 		}
@@ -140,27 +144,38 @@ func (s *gpuSnapshot) reserveMemory(required uint64) error {
 		if after < defaultGPUMinFreeMemory {
 			return ErrGPUOutOfMemory
 		}
-		if s.freeMem.CompareAndSwap(cur, after) {
+		if gs.freeMem.CompareAndSwap(cur, after) {
 			return nil
 		}
 	}
 }
 
 // release adds the given size in bytes back to the snapshot's free memory.
-func (s *gpuSnapshot) releaseMemory(released uint64) {
-	atomic.AddUint64(&s.freeMem, released)
+// it ensures that we never exceed the total memory of the GPU when releasing,
+// and caps the free memory at totalMem if that happens.
+func (gs *gpuSnapshot) releaseMemory(released uint64) {
+	for {
+		cur := gs.freeMemory()
+		after := cur + released
+		if after > gs.totalMem {
+			after = gs.totalMem
+		}
+		if gs.freeMem.CompareAndSwap(cur, after) {
+			return
+		}
+	}
 }
 
-func (s *gpuSnapshot) setFreeMemory(freeMem uint64) {
-	s.freeMem.Store(freeMem)
+func (gs *gpuSnapshot) setFreeMemory(freeMem uint64) {
+	gs.freeMem.Store(freeMem)
 }
 
-func (s *gpuSnapshot) freeMemory() uint64 {
-	return s.freeMem.Load()
+func (gs *gpuSnapshot) freeMemory() uint64 {
+	return gs.freeMem.Load()
 }
 
-func (s *gpuSnapshot) compare(other *gpuSnapshot) int {
-	curFree := s.freeMemory()
+func (gs *gpuSnapshot) compare(other *gpuSnapshot) int {
+	curFree := gs.freeMemory()
 	otherFree := other.freeMemory()
 	if curFree == otherFree {
 		return 0
@@ -170,9 +185,16 @@ func (s *gpuSnapshot) compare(other *gpuSnapshot) int {
 	return 1
 }
 
-func (s *gpuSnapshot) copyTo(other *gpuSnapshot) {
-	other.device = s.device
-	other.setFreeMemory(s.freeMemory())
+func (gs *gpuSnapshot) copyTo(other *gpuSnapshot) {
+	other.device = gs.device
+	other.totalMem = gs.totalMem
+	other.setFreeMemory(gs.freeMemory())
+}
+
+func (gs *gpuSnapshot) clone() *gpuSnapshot {
+	clone := &gpuSnapshot{}
+	gs.copyTo(clone)
+	return clone
 }
 
 // ---------------------------------
@@ -188,42 +210,54 @@ type gpuSnapshotStore struct {
 	snapshots []*gpuSnapshot
 }
 
-func newGPUSnapshotStore(init bool) *gpuSnapshotStore {
+func newGPUSnapshotStore() *gpuSnapshotStore {
 	snapshots := make([]*gpuSnapshot, gpuCount)
-	if !init {
-		for i := 0; i < gpuCount; i++ {
-			snapshots[i] = newGPUSnapshot(i)
-		}
-		return &gpuSnapshotStore{snapshots: snapshots}
-	}
 	var wg sync.WaitGroup
 	wg.Add(gpuCount)
 	for i := 0; i < gpuCount; i++ {
 		go func(device int) {
 			defer wg.Done()
-			snapshots[device] = newGPUSnapshot(device)
+			// get total free memory for the GPU device.
+			totMemory := uint64(0)
 			var freeBytes C.size_t
-			if C.faiss_gpu_free_memory(C.int(device), &freeBytes) == 0 {
-				snapshots[device].setFreeMemory(uint64(freeBytes))
+			if c := C.faiss_gpu_free_memory(
+				C.int(device),
+				&freeBytes,
+			); c == 0 {
+				totMemory = uint64(freeBytes)
 			}
+			// if we fail to get the free memory for the GPU,
+			// we still create a snapshot with 0 total and free memory,
+			// which will cause all reservation attempts to fail but won't cause any crashes.
+			snapshots[device] = newGPUSnapshot(device, totMemory)
 		}(i)
 	}
 	wg.Wait()
 	return &gpuSnapshotStore{snapshots: snapshots}
 }
 
-func (s *gpuSnapshotStore) snapshotForDevice(device int) *gpuSnapshot {
-	return s.snapshots[device]
+func (gss *gpuSnapshotStore) snapshotForDevice(device int) *gpuSnapshot {
+	return gss.snapshots[device]
 }
 
-func (s *gpuSnapshotStore) copyTo(other *gpuSnapshotStore) {
+func (gss *gpuSnapshotStore) compare(i, j int) int {
+	return gss.snapshots[i].compare(gss.snapshots[j])
+}
+
+func (gss *gpuSnapshotStore) copyTo(other *gpuSnapshotStore) {
 	for i := 0; i < gpuCount; i++ {
-		s.snapshots[i].copyTo(other.snapshots[i])
+		gss.snapshots[i].copyTo(other.snapshots[i])
 	}
 }
 
-func (s *gpuSnapshotStore) compare(i, j int) int {
-	return s.snapshots[i].compare(s.snapshots[j])
+func (gss *gpuSnapshotStore) clone() *gpuSnapshotStore {
+	clone := &gpuSnapshotStore{
+		snapshots: make([]*gpuSnapshot, gpuCount),
+	}
+	for i := 0; i < gpuCount; i++ {
+		clone.snapshots[i] = gss.snapshots[i].clone()
+	}
+	return clone
 }
 
 // ---------------------------------
@@ -244,7 +278,7 @@ func newGPULoadBalancer() *gpuLoadBalancer {
 	lb := &gpuLoadBalancer{
 		order:        make([]int, gpuCount),
 		scratchOrder: make([]int, gpuCount),
-		scratchStore: newGPUSnapshotStore(false),
+		scratchStore: snapshotStore.clone(),
 	}
 	for i := 0; i < gpuCount; i++ {
 		lb.order[i] = i
