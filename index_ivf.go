@@ -20,7 +20,7 @@ func (idx *faissIndex) SetDirectMap(mapType int) (err error) {
 		ivfPtr,
 		C.int(mapType),
 	); c != 0 {
-		err = NewError(ErrSetParamsFailed, int(c))
+		err = newFaissError(ErrSetParamsFailed, getLastError(), int(c))
 	}
 	return err
 }
@@ -71,7 +71,7 @@ func (idx *faissIndex) SetQuantizers(srcIndex Index) error {
 	}
 	c := C.faiss_Set_quantizers(idx.idx, srcIndex.cPtr())
 	if c != 0 {
-		return NewError(ErrSetQuantizerFailed, int(c))
+		return newFaissError(ErrSetQuantizerFailed, getLastError(), int(c))
 	}
 	return nil
 }
