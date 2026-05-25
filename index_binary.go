@@ -139,7 +139,7 @@ func (b *faissBinaryIndex) SetDirectMap(mapType int) (err error) {
 		ivfPtrBinary,
 		C.int(mapType),
 	); c != 0 {
-		err = NewError(ErrSetParamsFailed, int(c))
+		err = newFaissError(ErrSetParamsFailed, getLastError(), int(c))
 	}
 	return err
 }
@@ -173,7 +173,7 @@ func (b *faissBinaryIndex) Train(x []uint8) error {
 	n := (len(x) * 8) / b.D()
 	if c := C.faiss_IndexBinary_train(b.bIdx, C.idx_t(n),
 		(*C.uint8_t)(&x[0])); c != 0 {
-		return NewError(ErrTrainFailed, int(c))
+		return newFaissError(ErrTrainFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -182,7 +182,7 @@ func (b *faissBinaryIndex) Add(x []uint8) error {
 	n := (len(x) * 8) / b.D()
 	if c := C.faiss_IndexBinary_add(b.bIdx, C.idx_t(n),
 		(*C.uint8_t)(&x[0])); c != 0 {
-		return NewError(ErrAddFailed, int(c))
+		return newFaissError(ErrAddFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -201,7 +201,7 @@ func (b *faissBinaryIndex) Search(xb []uint8, k int64) (
 		(*C.int32_t)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 	return distances, labels, nil
 }
@@ -235,7 +235,7 @@ func (b *faissBinaryIndex) searchWithOptions(xb []uint8, k int64, selector Selec
 		(*C.int32_t)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 	return distances, labels, nil
 }
@@ -265,7 +265,7 @@ func (b *faissBinaryIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors
 		C.size_t(nlist),
 		params.sp,
 	); c != 0 {
-		return nil, NewError(ErrInspectIndexFailed, int(c))
+		return nil, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
 	}
 	return listCount, nil
 }
@@ -297,7 +297,7 @@ func (b *faissBinaryIndex) ObtainClustersWithDistancesFromIVFIndex(xb []uint8, i
 		(*C.idx_t)(&centroids[0]),
 		params.sp,
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 
 	return centroids, centroidDistances, nil
@@ -334,7 +334,7 @@ func (b *faissBinaryIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, d
 		nil,
 	)
 	if c != 0 {
-		return nil, nil, NewError(ErrInspectIndexFailed, int(c))
+		return nil, nil, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
 	}
 
 	topIndices := getIndicesOfKCentroidCardinalities(
@@ -408,7 +408,7 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 		(C.int)(0),
 		searchParams.sp,
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 
 	return distances, labels, nil
@@ -426,7 +426,7 @@ func (b *faissBinaryIndex) Size() uint64 {
 func (b *faissBinaryIndex) CodeSize() (uint64, error) {
 	var size C.size_t
 	if c := C.faiss_IndexBinary_sa_code_size(b.bIdx, &size); c != 0 {
-		return 0, NewError(ErrInspectIndexFailed, int(c))
+		return 0, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
 	}
 	return uint64(size), nil
 }
@@ -447,7 +447,7 @@ func BinaryIndexFactory(dims int, description string) (*BinaryIndexImpl, error) 
 	}
 	var idx faissBinaryIndex
 	if c := C.faiss_index_binary_factory(&idx.bIdx, C.int(dims), cDescription); c != 0 {
-		return nil, NewError(ErrCreateIndexFailed, int(c))
+		return nil, newFaissError(ErrCreateIndexFailed, getLastError(), int(c))
 	}
 	return &BinaryIndexImpl{&idx}, nil
 }
@@ -458,7 +458,7 @@ func (idx *faissBinaryIndex) SetQuantizers(srcIndex BinaryIndex) error {
 	}
 	c := C.faiss_Set_quantizers_binary(idx.bIdx, srcIndex.bPtr())
 	if c != 0 {
-		return NewError(ErrSetQuantizerFailed, int(c))
+		return newFaissError(ErrSetQuantizerFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -472,7 +472,7 @@ func (idx *faissBinaryIndex) MergeFrom(other BinaryIndex, add_id int64) (err err
 		other.bPtr(),
 		(C.idx_t)(add_id),
 	); c != 0 {
-		err = NewError(ErrMergeFromFailed, int(c))
+		err = newFaissError(ErrMergeFromFailed, getLastError(), int(c))
 	}
 	return err
 }

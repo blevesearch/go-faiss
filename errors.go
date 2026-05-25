@@ -1,91 +1,100 @@
 package faiss
 
+/*
+#include <faiss/c_api/error_c.h>
+*/
+import "C"
 import (
 	"errors"
 	"fmt"
 )
 
-// Error pairs a go-faiss sentinel error with the integer error code returned
-// by the underlying FAISS C call. It supports errors.Is against the sentinel
-// (via Unwrap) and exposes the raw C return code for callers that want it.
-type Error struct {
-	Err  error // sentinel: one of the package-level Err* values
-	Code int   // the non-zero return code from the failing C function
+// faissError wraps an error returned by a faiss C API call,
+// including the error type and the error code returned by the C API.
+type faissError struct {
+	errType error
+	err     error
+	errCode int
 }
 
-func (e *Error) Error() string {
-	if e == nil || e.Err == nil {
-		return "faiss: <nil error>"
+func (e *faissError) Error() string {
+	return fmt.Sprintf("faiss %s: %s (code %d)", e.errType, e.err, e.errCode)
+}
+
+// returns the error type which can allow usage of
+// errors.Is and errors.As for error handling.
+func (e *faissError) Unwrap() error {
+	return e.errType
+}
+
+// create a new faissError with the given error type, underlying error, and error code.
+func newFaissError(errType, err error, errCode int) error {
+	return &faissError{
+		errType: errType,
+		err:     err,
+		errCode: errCode,
 	}
-	return fmt.Sprintf("%s (code %d)", e.Err.Error(), e.Code)
 }
 
-func (e *Error) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
-
-func NewError(sentinel error, code int) error {
-	return &Error{Err: sentinel, Code: code}
-}
-
-// Sentinel errors returned by go-faiss.
-//
-// These are deliberately fixed, package-level values so that:
-//
-//  1. Callers can use errors.Is to identify the failing operation class.
-//  2. We avoid reading the FAISS C-side global error string via
-//     faiss_get_last_error(), which is racy under concurrent use:
-//     another goroutine/thread may overwrite that global between the
-//     failing C call and our read, yielding a wrong (or empty) message.
-//
-// Style:
-//   - Operation errors are phrased as "faiss: <verb> <noun> failed"
-//     and their identifier ends in "Failed".
-//   - State / pre-condition errors are a declarative phrase
-//     ("faiss: index is not an ivf index") with no "Failed" suffix.
+// FAISS error types for categorizing errors returned by the C API.
 var (
 	// ---- Construction ----
-	ErrCreateIndexFailed    = errors.New("faiss: create index failed")
-	ErrCreateSelectorFailed = errors.New("faiss: create id selector failed")
+
+	ErrCreateIndexFailed    = errors.New("create index failed")
+	ErrCreateSelectorFailed = errors.New("create selector failed")
 
 	// ---- Configuration ----
-	ErrCreateParamsFailed = errors.New("faiss: create search params failed")
-	ErrSetParamsFailed    = errors.New("faiss: set index params failed")
+
+	ErrCreateParamsFailed = errors.New("create search params failed")
+	ErrSetParamsFailed    = errors.New("set index params failed")
 
 	// ---- Vector ops ----
-	ErrAddFailed          = errors.New("faiss: add vectors failed")
-	ErrTrainFailed        = errors.New("faiss: train index failed")
-	ErrSearchFailed       = errors.New("faiss: search index failed")
-	ErrReconstructFailed  = errors.New("faiss: reconstruct vector failed")
-	ErrResetIndexFailed   = errors.New("faiss: reset index failed")
-	ErrSetQuantizerFailed = errors.New("faiss: set quantizer failed")
-	ErrMergeFromFailed    = errors.New("faiss: merge from index failed")
-	ErrRemoveIDsFailed    = errors.New("faiss: remove ids failed")
 
-	// ---- Read-only index introspection (NOT search) ----
-	ErrInspectIndexFailed = errors.New("faiss: inspect index failed")
+	ErrAddFailed          = errors.New("add vectors failed")
+	ErrTrainFailed        = errors.New("train index failed")
+	ErrSearchFailed       = errors.New("search index failed")
+	ErrReconstructFailed  = errors.New("reconstruct vector failed")
+	ErrResetIndexFailed   = errors.New("reset index failed")
+	ErrSetQuantizerFailed = errors.New("set quantizer failed")
+	ErrMergeFromFailed    = errors.New("merge from index failed")
+	ErrRemoveIDsFailed    = errors.New("remove IDs failed")
+
+	// ---- Read-only index introspection ----
+
+	ErrInspectIndexFailed = errors.New("inspect index failed")
 
 	// ---- I/O ----
-	ErrWriteIndexFailed = errors.New("faiss: write index failed")
-	ErrReadIndexFailed  = errors.New("faiss: read index failed")
+
+	ErrWriteIndexFailed = errors.New("write index failed")
+	ErrReadIndexFailed  = errors.New("read index failed")
 
 	// ---- GPU ----
-	ErrNoUsableGPUDevices = errors.New("faiss: no gpu usable devices available")
-	ErrGPUCloneFailed     = errors.New("faiss: gpu clone failed")
-	ErrGPUSetupFailed     = errors.New("faiss: gpu setup failed")
-	ErrGPUContextFailed   = errors.New("faiss: gpu context init failed")
+
+	ErrNoUsableGPUDevices = errors.New("no GPU usable devices available")
+	ErrGPUCloneFailed     = errors.New("GPU clone failed")
+	ErrGPUSetupFailed     = errors.New("GPU setup failed")
+	ErrGPUContextFailed   = errors.New("GPU context init failed")
 
 	// ---- State / pre-condition errors ----
-	ErrIndexNil      = errors.New("faiss: index is nil")
-	ErrSelectorNil   = errors.New("faiss: selector is nil")
-	ErrNotIDMapIndex = errors.New("faiss: index is not an idmap index")
-	ErrNotIVFIndex   = errors.New("faiss: index is not an ivf index")
-	ErrNotBIVFIndex  = errors.New("faiss: index is not a binary ivf index")
+
+	ErrIndexNil      = errors.New("index is nil")
+	ErrSelectorNil   = errors.New("selector is nil")
+	ErrNotIDMapIndex = errors.New("index is not an IDMap index")
+	ErrNotIVFIndex   = errors.New("index is not an IVF index")
+	ErrNotBIVFIndex  = errors.New("index is not a binary IVF index")
 
 	// ---- Unsupported operations ----
-	ErrMergeFromNotSupported    = errors.New("faiss: merge from is only supported for IVF indices")
-	ErrSetQuantizerNotSupported = errors.New("faiss: set quantizer not supported for this index type")
+
+	ErrMergeFromNotSupported    = errors.New("merge from is not supported for this index type")
+	ErrSetQuantizerNotSupported = errors.New("set quantizer not supported for this index type")
 )
+
+// getLastError returns the last error message set by the FAISS C API.
+//
+// The underlying C variable is thread-local / global and can be clobbered
+// by concurrent FAISS calls or by goroutine rescheduling across OS threads,
+// so this string is best-effort diagnostic context only. Always use the
+// errType sentinel (with errors.Is / errors.As) to identify the error.
+func getLastError() error {
+	return errors.New(C.GoString(C.faiss_get_last_error()))
+}
