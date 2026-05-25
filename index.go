@@ -166,7 +166,7 @@ func (idx *faissIndex) D() int {
 func (idx *faissIndex) CodeSize() (uint64, error) {
 	var size C.size_t
 	if c := C.faiss_Index_sa_code_size(idx.idx, &size); c != 0 {
-		return 0, NewError(ErrInspectIndexFailed, int(c))
+		return 0, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
 	}
 	return uint64(size), nil
 }
@@ -186,7 +186,7 @@ func (idx *faissIndex) MetricType() int {
 func (idx *faissIndex) Train(x []float32) error {
 	n := len(x) / idx.D()
 	if c := C.faiss_Index_train(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		return NewError(ErrTrainFailed, int(c))
+		return newFaissError(ErrTrainFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -194,7 +194,7 @@ func (idx *faissIndex) Train(x []float32) error {
 func (idx *faissIndex) Add(x []float32) error {
 	n := len(x) / idx.D()
 	if c := C.faiss_Index_add(idx.idx, C.idx_t(n), (*C.float)(&x[0])); c != 0 {
-		return NewError(ErrAddFailed, int(c))
+		return newFaissError(ErrAddFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -224,7 +224,7 @@ func (idx *faissIndex) ObtainClusterVectorCountsFromIVFIndex(includedVectors Sel
 		C.size_t(nlist),
 		params.sp,
 	); c != 0 {
-		return nil, NewError(ErrInspectIndexFailed, int(c))
+		return nil, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
 	}
 	return listCount, nil
 }
@@ -268,7 +268,7 @@ func (idx *faissIndex) ObtainClustersWithDistancesFromIVFIndex(x []float32, incl
 		(*C.idx_t)(&centroids[0]),
 		params.sp,
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 
 	return centroids, centroidDistances, nil
@@ -299,7 +299,7 @@ func (idx *faissIndex) ObtainKCentroidCardinalitiesFromIVFIndex(limit int, desce
 		nil,
 	)
 	if c != 0 {
-		return nil, nil, NewError(ErrInspectIndexFailed, int(c))
+		return nil, nil, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
 	}
 
 	topIndices := getIndicesOfKCentroidCardinalities(
@@ -401,7 +401,7 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, c
 		(C.int)(0),
 		searchParams.sp,
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 
 	return distances, labels, nil
@@ -415,7 +415,7 @@ func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {
 		(*C.float)(&x[0]),
 		(*C.idx_t)(&xids[0]),
 	); c != 0 {
-		return NewError(ErrAddFailed, int(c))
+		return newFaissError(ErrAddFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -437,7 +437,7 @@ func (idx *faissIndex) Search(x []float32, k int64) (
 		(*C.float)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
 	); c != 0 {
-		err = NewError(ErrSearchFailed, int(c))
+		err = newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 
 	return
@@ -457,7 +457,7 @@ func (idx *faissIndex) Reconstruct(key int64) (recons []float32, err error) {
 		C.idx_t(key),
 		(*C.float)(&rv[0]),
 	); c != 0 {
-		err = NewError(ErrReconstructFailed, int(c))
+		err = newFaissError(ErrReconstructFailed, getLastError(), int(c))
 	}
 
 	return rv, err
@@ -472,7 +472,7 @@ func (idx *faissIndex) ReconstructBatch(keys []int64, recons []float32) ([]float
 		(*C.idx_t)(&keys[0]),
 		(*C.float)(&recons[0]),
 	); c != 0 {
-		err = NewError(ErrReconstructFailed, int(c))
+		err = newFaissError(ErrReconstructFailed, getLastError(), int(c))
 	}
 
 	return recons, err
@@ -491,7 +491,7 @@ func (idx *faissIndex) MergeFrom(other Index, add_id int64) (err error) {
 		other.cPtr(),
 		(C.idx_t)(add_id),
 	); c != 0 {
-		err = NewError(ErrMergeFromFailed, int(c))
+		err = newFaissError(ErrMergeFromFailed, getLastError(), int(c))
 	}
 
 	return err
@@ -503,7 +503,7 @@ func (idx *faissIndex) RangeSearch(x []float32, radius float32) (
 	n := len(x) / idx.D()
 	var rsr *C.FaissRangeSearchResult
 	if c := C.faiss_RangeSearchResult_new(&rsr, C.idx_t(n)); c != 0 {
-		return nil, NewError(ErrSearchFailed, int(c))
+		return nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 	if c := C.faiss_Index_range_search(
 		idx.idx,
@@ -512,7 +512,7 @@ func (idx *faissIndex) RangeSearch(x []float32, radius float32) (
 		C.float(radius),
 		rsr,
 	); c != 0 {
-		return nil, NewError(ErrSearchFailed, int(c))
+		return nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 	return &RangeSearchResult{rsr}, nil
 }
@@ -521,7 +521,7 @@ func (idx *faissIndex) DistCompute(queryData []float32, ids []int64) ([]float32,
 	distances := make([]float32, len(ids))
 	if c := C.faiss_Index_dist_compute(idx.idx, (*C.float)(&queryData[0]),
 		(*C.idx_t)(&ids[0]), (C.size_t)(len(ids)), (*C.float)(&distances[0])); c != 0 {
-		return nil, NewError(ErrSearchFailed, int(c))
+		return nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 
 	return distances, nil
@@ -529,7 +529,7 @@ func (idx *faissIndex) DistCompute(queryData []float32, ids []int64) ([]float32,
 
 func (idx *faissIndex) Reset() error {
 	if c := C.faiss_Index_reset(idx.idx); c != 0 {
-		return NewError(ErrResetIndexFailed, int(c))
+		return newFaissError(ErrResetIndexFailed, getLastError(), int(c))
 	}
 	return nil
 }
@@ -537,7 +537,7 @@ func (idx *faissIndex) Reset() error {
 func (idx *faissIndex) RemoveIDs(sel *IDSelector) (int, error) {
 	var nRemoved C.size_t
 	if c := C.faiss_Index_remove_ids(idx.idx, sel.sel, &nRemoved); c != 0 {
-		return 0, NewError(ErrRemoveIDsFailed, int(c))
+		return 0, newFaissError(ErrRemoveIDsFailed, getLastError(), int(c))
 	}
 	return int(nRemoved), nil
 }
@@ -567,7 +567,7 @@ func (idx *faissIndex) searchWithOptions(x []float32, k int64, sel Selector, par
 		(*C.float)(&distances[0]),
 		(*C.idx_t)(&labels[0]),
 	); c != 0 {
-		return nil, nil, NewError(ErrSearchFailed, int(c))
+		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
 	}
 	return distances, labels, nil
 }
@@ -624,7 +624,7 @@ func IndexFactory(d int, description string, metric int) (*IndexImpl, error) {
 	var idx faissIndex
 	c := C.faiss_index_factory(&idx.idx, C.int(d), cdesc, C.FaissMetricType(metric))
 	if c != 0 {
-		return nil, NewError(ErrCreateIndexFailed, int(c))
+		return nil, newFaissError(ErrCreateIndexFailed, getLastError(), int(c))
 	}
 	return &IndexImpl{&idx}, nil
 }

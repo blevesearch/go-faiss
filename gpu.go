@@ -82,7 +82,7 @@ func numGPUs() (int, error) {
 	var rv C.int
 	c := C.faiss_get_num_gpus(&rv)
 	if c != 0 {
-		return 0, NewError(ErrGPUSetupFailed, int(c))
+		return 0, newFaissError(ErrGPUSetupFailed, getLastError(), int(c))
 	}
 	return int(rv), nil
 }
@@ -242,7 +242,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 
 	var gpuResource *C.FaissStandardGpuResources
 	if code := C.faiss_StandardGpuResources_new(&gpuResource); code != 0 {
-		return nil, NewError(ErrGPUCloneFailed, int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 
 	// Disable the pre-allocated temp memory pool so that all GPU memory is
@@ -250,17 +250,17 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	// allocations via cudaMalloc/cudaFree on demand.
 	if code := C.faiss_StandardGpuResources_noTempMemory(gpuResource); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUCloneFailed, int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 	if code := C.faiss_StandardGpuResources_setPinnedMemory(gpuResource, C.size_t(defaultGPUPinnedMemory)); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUCloneFailed, int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 
 	var clonerOpts *C.FaissGpuClonerOptions
 	if code := C.faiss_GpuClonerOptions_new(&clonerOpts); code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUCloneFailed, int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 	defer C.faiss_GpuClonerOptions_free(clonerOpts)
 
@@ -276,7 +276,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	)
 	if code != 0 {
 		C.faiss_StandardGpuResources_free(gpuResource)
-		return nil, NewError(ErrGPUCloneFailed, int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 
 	idx := &faissIndex{
@@ -300,7 +300,7 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 		&cpuIdx,
 	)
 	if code != 0 {
-		return nil, NewError(ErrGPUCloneFailed, int(code))
+		return nil, newFaissError(ErrGPUCloneFailed, getLastError(), int(code))
 	}
 	return &IndexImpl{&faissIndex{idx: cpuIdx}}, nil
 }
