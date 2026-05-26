@@ -597,13 +597,13 @@ func (c *gpuContext) delete() {
 		c.options.delete()
 		c.options = nil
 	}
-	if c.memReserved > 0 {
-		c.releaseMemory(c.memReserved)
-		c.memReserved = 0
-	}
 	if c.resource != nil {
 		c.resource.delete()
 		c.resource = nil
+	}
+	if c.memReserved > 0 {
+		c.releaseMemory(c.memReserved)
+		c.memReserved = 0
 	}
 }
 
