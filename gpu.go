@@ -61,9 +61,9 @@ var (
 	gpuCount      int
 	loadBalancer  *gpuLoadBalancer
 	snapshotStore *gpuSnapshotStore
-)
 
-var reflectStaticSizeFaissGPUIndex uint64
+	reflectStaticSizeFaissGPUIndex uint64
+)
 
 // --------------------------------
 // GPU Setup
