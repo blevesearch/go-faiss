@@ -212,27 +212,21 @@ type gpuSnapshotStore struct {
 
 func newGPUSnapshotStore() *gpuSnapshotStore {
 	snapshots := make([]*gpuSnapshot, gpuCount)
-	var wg sync.WaitGroup
-	wg.Add(gpuCount)
-	for i := 0; i < gpuCount; i++ {
-		go func(device int) {
-			defer wg.Done()
-			// get total free memory for the GPU device.
-			totMemory := uint64(0)
-			var freeBytes C.size_t
-			if c := C.faiss_gpu_free_memory(
-				C.int(device),
-				&freeBytes,
-			); c == 0 {
-				totMemory = uint64(freeBytes)
-			}
-			// if we fail to get the free memory for the GPU,
-			// we still create a snapshot with 0 total and free memory,
-			// which will cause all reservation attempts to fail but won't cause any crashes.
-			snapshots[device] = newGPUSnapshot(device, totMemory)
-		}(i)
+	for device := 0; device < gpuCount; device++ {
+		// get total free memory for the GPU device.
+		totMemory := uint64(0)
+		var freeBytes C.size_t
+		if c := C.faiss_gpu_free_memory(
+			C.int(device),
+			&freeBytes,
+		); c == 0 {
+			totMemory = uint64(freeBytes)
+		}
+		// if we fail to get the free memory for the GPU,
+		// we still create a snapshot with 0 total and free memory,
+		// which will cause all reservation attempts to fail but won't cause any crashes.
+		snapshots[device] = newGPUSnapshot(device, totMemory)
 	}
-	wg.Wait()
 	return &gpuSnapshotStore{snapshots: snapshots}
 }
 
