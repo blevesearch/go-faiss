@@ -73,6 +73,8 @@ var (
 	ErrNoUsableGPUDevices = errors.New("no GPU usable devices available")
 	ErrGPUCloneFailed     = errors.New("GPU clone failed")
 	ErrGPUSetupFailed     = errors.New("GPU setup failed")
+	ErrGPUContextFailed   = errors.New("GPU context init failed")
+	ErrGPUOutOfMemory     = errors.New("GPU out of memory")
 
 	// ---- State / pre-condition errors ----
 
