@@ -522,11 +522,7 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	// estimator uses the same cloner options we will pass to the clone
 	// call, so the interleaved-layout / indices-options / coarse-quantizer
 	// width all match what faiss will allocate.
-	requiredMem, err := ctx.estimateRequiredMemory(cpuIndex)
-	if err != nil {
-		ctx.delete()
-		return nil, err
-	}
+	requiredMem := ctx.estimateRequiredMemory(cpuIndex)
 	if err := ctx.reserveMemory(requiredMem); err != nil {
 		ctx.delete()
 		return nil, err
@@ -624,22 +620,20 @@ func (c *gpuContext) reserveMemory(size uint64) error {
 // accounts for the interleaved storage layout that faiss uses on the GPU.
 // Falls back to a code_size * ntotal estimate if the C API does not
 // recognize the index type.
-func (c *gpuContext) estimateRequiredMemory(cpuIndex *IndexImpl) (uint64, error) {
+func (c *gpuContext) estimateRequiredMemory(cpuIndex *IndexImpl) uint64 {
 	var size C.size_t
-	if rc := C.faiss_GpuMemoryEstimate_for_cpu_index(
-		cpuIndex.cPtr(),
-		C.int(c.device),
-		c.options.cPtr(),
-		&size,
-	); rc != 0 {
-		return 0, newFaissError(ErrInspectIndexFailed, getLastError(), int(rc))
+	numVecs := cpuIndex.Ntotal()
+	if numVecs > 0 {
+		if rc := C.faiss_GpuMemoryEstimate_for_cpu_index(
+			cpuIndex.cPtr(),
+			C.int(c.device),
+			c.options.cPtr(),
+			&size,
+		); rc != 0 {
+			return uint64(numVecs) * c.codeSize
+		}
 	}
-	if size == 0 {
-		// Unknown / unsupported index type — fall back to a conservative
-		// estimate based on the per-vector code size.
-		return uint64(cpuIndex.Ntotal()) * c.codeSize, nil
-	}
-	return uint64(size), nil
+	return uint64(size)
 }
 
 func (c *gpuContext) releaseMemory(size uint64) {
