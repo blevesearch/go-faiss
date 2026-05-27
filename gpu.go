@@ -25,6 +25,7 @@ package faiss
 #include <faiss/c_api/gpu/DeviceUtils_c.h>
 #include <faiss/c_api/gpu/GpuIndex_c_ex.h>
 #include <faiss/c_api/gpu/GpuIndexIVF_c_ex.h>
+#include <faiss/c_api/gpu/GpuMemoryEstimate_c.h>
 */
 import "C"
 import (
@@ -516,9 +517,13 @@ func CloneToGPU(cpuIndex *IndexImpl) (*GPUIndexImpl, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Reserve memory for the index against the GPU snapshot.
-	// TODO @capemox -> pass in the correct size here.
-	if err := ctx.reserveMemory(0); err != nil {
+	// Estimate the GPU memory the clone will need and reserve it against
+	// the GPU snapshot before paying the cost of the actual clone. The
+	// estimator uses the same cloner options we will pass to the clone
+	// call, so the interleaved-layout / indices-options / coarse-quantizer
+	// width all match what faiss will allocate.
+	requiredMem := ctx.estimateRequiredMemory(cpuIndex)
+	if err := ctx.reserveMemory(requiredMem); err != nil {
 		ctx.delete()
 		return nil, err
 	}
@@ -608,6 +613,27 @@ func (c *gpuContext) reserveMemory(size uint64) error {
 	}
 	c.memReserved += size
 	return nil
+}
+
+// estimateRequiredMemory predicts the GPU memory the clone of cpuIndex
+// will consume on this context's device, given the cloner options. It
+// accounts for the interleaved storage layout that faiss uses on the GPU.
+// Falls back to a code_size * ntotal estimate if the C API does not
+// recognize the index type.
+func (c *gpuContext) estimateRequiredMemory(cpuIndex *IndexImpl) uint64 {
+	var size C.size_t
+	numVecs := cpuIndex.Ntotal()
+	if numVecs > 0 {
+		if rc := C.faiss_GpuMemoryEstimate_for_cpu_index(
+			cpuIndex.cPtr(),
+			C.int(c.device),
+			c.options.cPtr(),
+			&size,
+		); rc != 0 {
+			return uint64(numVecs) * c.codeSize
+		}
+	}
+	return uint64(size)
 }
 
 func (c *gpuContext) releaseMemory(size uint64) {
