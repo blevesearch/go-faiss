@@ -215,10 +215,10 @@ func newGPUSnapshotStore() *gpuSnapshotStore {
 	snapshots := make([]*gpuSnapshot, gpuCount)
 	for device := 0; device < gpuCount; device++ {
 		cDev := C.int(device)
+		totMemory := uint64(0)
 		// first probe if the device is healthy and can be used
-		if c := C.faiss_probe_gpu(cDev); c == 0 {
-			// get total free memory for the device
-			totMemory := uint64(0)
+		var probeResult C.int
+		if c := C.faiss_probe_gpu(cDev, &probeResult); c == 0 && probeResult == 0 {
 			var freeBytes C.size_t
 			if c := C.faiss_gpu_free_memory(
 				cDev,
