@@ -214,14 +214,18 @@ type gpuSnapshotStore struct {
 func newGPUSnapshotStore() *gpuSnapshotStore {
 	snapshots := make([]*gpuSnapshot, gpuCount)
 	for device := 0; device < gpuCount; device++ {
-		// get total free memory for the GPU device.
-		totMemory := uint64(0)
-		var freeBytes C.size_t
-		if c := C.faiss_gpu_free_memory(
-			C.int(device),
-			&freeBytes,
-		); c == 0 {
-			totMemory = uint64(freeBytes)
+		cDev := C.int(device)
+		// first probe if the device is healthy and can be used
+		if c := C.faiss_probe_gpu(cDev); c == 0 {
+			// get total free memory for the device
+			totMemory := uint64(0)
+			var freeBytes C.size_t
+			if c := C.faiss_gpu_free_memory(
+				cDev,
+				&freeBytes,
+			); c == 0 {
+				totMemory = uint64(freeBytes)
+			}
 		}
 		// if we fail to get the free memory for the GPU,
 		// we still create a snapshot with 0 total and free memory,
