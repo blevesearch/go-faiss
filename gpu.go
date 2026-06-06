@@ -45,13 +45,17 @@ const (
 	// memorySpaceUnified uses CUDA managed memory (cudaMallocManaged),
 	// allowing the index to exceed GPU memory on Pascal+ (CC 6.0+) GPUs.
 	memorySpaceUnified memorySpace = 2
+	// memorySpaceHybrid uses standard GPU memory (cudaMalloc) when possible
+	// and falls back to CUDA managed memory (cudaMallocManaged) when the GPU memory is exhausted.
+	// This mode allows the index to exceed GPU memory on Pascal+ (CC 6.0+) GPUs.
+	memorySpaceHybrid memorySpace = 3
 )
 
 const (
 	// keep at least 512 MiB free on the GPU to allow creating and using temporary buffers during search operations.
 	defaultGPUMinFreeMemory = 512 * 1024 * 1024
-	// use unified memory by default to avoid out-of-memory errors on GPUs with limited memory.
-	defaultGPUMemoryMode = memorySpaceUnified
+	// use hybrid memory by default to avoid out-of-memory errors on GPUs with limited memory.
+	defaultGPUMemoryMode = memorySpaceHybrid
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
 	defaultGPUPinnedMemory = 0
 	// refresh the order in which GPUs are assigned every 500ms.
