@@ -688,7 +688,6 @@ func newGPUClonerOptions() (*gpuClonerOptions, error) {
 	if c := C.faiss_GpuClonerOptions_new(&opts); c != 0 {
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
-	// Set the memory space for the GPU clone operation; this controls where the GPU index data will be allocated.
 	C.faiss_GpuClonerOptions_set_memorySpace(opts, C.int(defaultGPUMemoryMode))
 	return &gpuClonerOptions{opts: opts}, nil
 }
