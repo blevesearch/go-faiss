@@ -50,8 +50,8 @@ const (
 const (
 	// keep at least 512 MiB free on the GPU to allow creating and using temporary buffers during search operations.
 	defaultGPUMinFreeMemory = 512 * 1024 * 1024
-	// use unified memory by default to avoid out-of-memory errors on GPUs with limited memory.
-	defaultGPUMemoryMode = memorySpaceUnified
+	// use device memory by default since we already do memory estimation and reservation in our GPU snapshot store.
+	defaultGPUMemoryMode = memorySpaceDevice
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
 	defaultGPUPinnedMemory = 0
 	// refresh the order in which GPUs are assigned every 500ms.
@@ -656,22 +656,10 @@ func newGPUResource() (*gpuResource, error) {
 	if c := C.faiss_StandardGpuResources_new(&res); c != 0 {
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
-	// Disable temp memory since we may have multiple indexes cloned to the same GPU,
-	// and not disabling temp memory can lead to exhausting GPU memory due to temp
-	// buffers accumulating across multiple clones.
-	if c := C.faiss_StandardGpuResources_noTempMemory(res); c != 0 {
+	if c := C.faiss_StandardGpuResources_dynamicTempMemory(res); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
-	// With temp memory disabled, the GPU index will now allocate memory on demand during search operations,
-	// instead of pre-allocating a large temp buffer during cloning. We ensure that this on-demand allocation also
-	// uses the same memory space as the index data by setting the temp memory space to the same value as defaultGPUMemoryMode.
-	if c := C.faiss_StandardGpuResources_setTempMemorySpace(res, C.int(defaultGPUMemoryMode)); c != 0 {
-		C.faiss_StandardGpuResources_free(res)
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
-	}
-	// Set the amount of pinned memory to allocate for GPU clone operations; this is the amount of CPU memory that will be pinned
-	// and used as staging buffers for transferring data to the GPU during cloning.
 	if c := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
