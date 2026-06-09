@@ -48,8 +48,8 @@ const (
 )
 
 const (
-	// keep at least 512 MiB free on the GPU to allow creating and using temporary buffers during search operations.
-	defaultGPUMinFreeMemory = 512 * 1024 * 1024
+	// reserve atleast 10% of total GPU memory for the the memory pool.
+	defaultGPUPoolBudget = 0.1
 	// use device memory by default since we already do memory estimation and reservation in our GPU snapshot store.
 	defaultGPUMemoryMode = memorySpaceDevice
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
@@ -59,9 +59,10 @@ const (
 )
 
 var (
-	gpuCount      int
-	loadBalancer  *gpuLoadBalancer
-	snapshotStore *gpuSnapshotStore
+	gpuCount        int
+	loadBalancer    *gpuLoadBalancer
+	snapshotStore   *gpuSnapshotStore
+	memoryPoolStore *gpuMemoryPoolStore
 
 	reflectStaticSizeFaissGPUIndex uint64
 )
@@ -85,6 +86,7 @@ func init() {
 			loadBalancer = newGPULoadBalancer()
 			go loadBalancer.monitor()
 		}
+		memoryPoolStore = newGPUMemoryPoolStore()
 	}
 }
 
@@ -133,7 +135,7 @@ func newGPUSnapshot(device int, totMemory uint64) *gpuSnapshot {
 }
 
 // reserve attempts to reserve the given size in bytes against the snapshot's free memory.
-// it ensures that atleast defaultGPUMinFreeMemory bytes remain free after the reservation, and returns
+// it ensures that atleast we remain under the data quota after the reservation, and returns
 // ErrGPUOutOfMemory if the reservation cannot be fulfilled.
 func (gs *gpuSnapshot) reserveMemory(required uint64) error {
 	for {
@@ -142,7 +144,7 @@ func (gs *gpuSnapshot) reserveMemory(required uint64) error {
 			return ErrGPUOutOfMemory
 		}
 		after := cur - required
-		if after < defaultGPUMinFreeMemory {
+		if after < gs.poolQuota() {
 			return ErrGPUOutOfMemory
 		}
 		if gs.freeMem.CompareAndSwap(cur, after) {
@@ -196,6 +198,14 @@ func (gs *gpuSnapshot) clone() *gpuSnapshot {
 	clone := &gpuSnapshot{}
 	gs.copyTo(clone)
 	return clone
+}
+
+func (gs *gpuSnapshot) poolQuota() uint64 {
+	return uint64(float64(gs.totalMem) * defaultGPUPoolBudget)
+}
+
+func (gs *gpuSnapshot) dataQuota() uint64 {
+	return gs.totalMem - gs.poolQuota()
 }
 
 // ---------------------------------
@@ -701,4 +711,51 @@ func (c *gpuClonerOptions) delete() {
 		C.faiss_GpuClonerOptions_free(c.opts)
 		c.opts = nil
 	}
+}
+
+// --------------------------------
+// GPU Memory Pool Store
+// --------------------------------
+
+// gpuMemoryPoolStore indicates a per-device reusable pool of GPU memory
+// that grows dynamically up to a threshold. It is used for temporary
+// buffers churned by all vector indices on that device.
+type gpuMemoryPoolStore struct {
+	devicePool []*gpuMemoryPool
+}
+
+func newGPUMemoryPoolStore() *gpuMemoryPoolStore {
+	pool := make([]*gpuMemoryPool, gpuCount)
+	for i := 0; i < gpuCount; i++ {
+		device := snapshotStore.snapshotForDevice(i)
+		pool[i] = newGPUMemoryPool(i, device.poolQuota())
+	}
+	return &gpuMemoryPoolStore{devicePool: pool}
+}
+
+func (mps *gpuMemoryPoolStore) poolForDevice(device int) *gpuMemoryPool {
+	return mps.devicePool[device]
+}
+
+// gpuMemoryPool wraps a FAISS GPU memory pool handle.
+type gpuMemoryPool struct {
+	pool *C.FaissGpuMemoryPool
+}
+
+func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {
+	if c := C.faiss_probe_gpu(cDev, &probeResult); c == 0 && probeResult == 0 {
+		var pool *C.FaissGpuMemoryPool
+		if c := C.faiss_GpuMemoryPool_new(
+			&pool,
+			C.size_t(cap),
+			C.int(device),
+		); c == 0 {
+			return &gpuMemoryPool{pool: pool}, nil
+		}
+	}
+	return nil
+}
+
+func (mp *gpuMemoryPool) cPtr() *C.FaissGpuMemoryPool {
+	return mp.pool
 }
