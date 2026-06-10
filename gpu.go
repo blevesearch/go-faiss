@@ -768,7 +768,7 @@ func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {
 		C.size_t(cap),
 		&pool,
 	); c == 0 {
-		return &gpuMemoryPool{pool: pool}, nil
+		return &gpuMemoryPool{pool: pool}
 	}
 	return nil
 }
