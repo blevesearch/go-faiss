@@ -26,6 +26,7 @@ package faiss
 #include <faiss/c_api/gpu/GpuIndex_c_ex.h>
 #include <faiss/c_api/gpu/GpuIndexIVF_c_ex.h>
 #include <faiss/c_api/gpu/GpuMemoryEstimate_c.h>
+#include <faiss/c_api/gpu/GpuMemoryPool_c.h>
 */
 import "C"
 import (
@@ -746,9 +747,9 @@ func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {
 	if c := C.faiss_probe_gpu(cDev, &probeResult); c == 0 && probeResult == 0 {
 		var pool *C.FaissGpuMemoryPool
 		if c := C.faiss_GpuMemoryPool_new(
-			&pool,
-			C.size_t(cap),
 			C.int(device),
+			C.size_t(cap),
+			&pool,
 		); c == 0 {
 			return &gpuMemoryPool{pool: pool}, nil
 		}
@@ -758,4 +759,11 @@ func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {
 
 func (mp *gpuMemoryPool) cPtr() *C.FaissGpuMemoryPool {
 	return mp.pool
+}
+
+func (mp *gpuMemoryPool) delete() {
+	if mp.pool != nil {
+		C.faiss_GpuMemoryPool_free(mp.pool)
+		mp.pool = nil
+	}
 }
