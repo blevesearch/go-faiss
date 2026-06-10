@@ -117,8 +117,8 @@ func probeGPUDevice(device int) bool {
 	var probeResult C.int
 	c := C.faiss_probe_gpu(
 		C.int(device),
-		&probeResult
-	);
+		&probeResult,
+	)
 	return c == 0 && probeResult == 0
 }
 
@@ -761,7 +761,7 @@ type gpuMemoryPool struct {
 	pool *C.FaissGpuMemoryPool
 }
 
-func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {	
+func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {
 	var pool *C.FaissGpuMemoryPool
 	if c := C.faiss_GpuMemoryPool_new(
 		C.int(device),
