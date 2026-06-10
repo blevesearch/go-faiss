@@ -113,6 +113,15 @@ func getBestGPUDevice() (int, error) {
 	return loadBalancer.nextDevice(), nil
 }
 
+func probeGPUDevice(device int) bool {
+	var probeResult C.int
+	c := C.faiss_probe_gpu(
+		C.int(device),
+		&probeResult
+	);
+	return c == 0 && probeResult == 0
+}
+
 // ---------------------------------
 // GPU Snapshot
 // ---------------------------------
@@ -225,14 +234,12 @@ type gpuSnapshotStore struct {
 func newGPUSnapshotStore() *gpuSnapshotStore {
 	snapshots := make([]*gpuSnapshot, gpuCount)
 	for device := 0; device < gpuCount; device++ {
-		cDev := C.int(device)
 		totMemory := uint64(0)
 		// first probe if the device is healthy and can be used
-		var probeResult C.int
-		if c := C.faiss_probe_gpu(cDev, &probeResult); c == 0 && probeResult == 0 {
+		if probeGPUDevice(device) {
 			var freeBytes C.size_t
 			if c := C.faiss_gpu_free_memory(
-				cDev,
+				C.int(device),
 				&freeBytes,
 			); c == 0 {
 				totMemory = uint64(freeBytes)
@@ -737,7 +744,10 @@ func newGPUMemoryPoolStore() *gpuMemoryPoolStore {
 	pool := make([]*gpuMemoryPool, gpuCount)
 	for i := 0; i < gpuCount; i++ {
 		device := snapshotStore.snapshotForDevice(i)
-		pool[i] = newGPUMemoryPool(i, device.poolQuota())
+		pq := device.poolQuota()
+		if pq > 0 {
+			pool[i] = newGPUMemoryPool(i, pq)
+		}
 	}
 	return &gpuMemoryPoolStore{devicePool: pool}
 }
@@ -751,16 +761,14 @@ type gpuMemoryPool struct {
 	pool *C.FaissGpuMemoryPool
 }
 
-func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {
-	if c := C.faiss_probe_gpu(cDev, &probeResult); c == 0 && probeResult == 0 {
-		var pool *C.FaissGpuMemoryPool
-		if c := C.faiss_GpuMemoryPool_new(
-			C.int(device),
-			C.size_t(cap),
-			&pool,
-		); c == 0 {
-			return &gpuMemoryPool{pool: pool}, nil
-		}
+func newGPUMemoryPool(device int, cap uint64) *gpuMemoryPool {	
+	var pool *C.FaissGpuMemoryPool
+	if c := C.faiss_GpuMemoryPool_new(
+		C.int(device),
+		C.size_t(cap),
+		&pool,
+	); c == 0 {
+		return &gpuMemoryPool{pool: pool}, nil
 	}
 	return nil
 }
