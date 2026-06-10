@@ -589,7 +589,7 @@ type gpuContext struct {
 }
 
 func newGPUContext(device int, codeSize uint64) (*gpuContext, error) {
-	res, err := newGPUResource()
+	res, err := newGPUResource(device)
 	if err != nil {
 		return nil, err
 	}
@@ -662,14 +662,22 @@ type gpuResource struct {
 	res *C.FaissStandardGpuResources
 }
 
-func newGPUResource() (*gpuResource, error) {
+func newGPUResource(device int) (*gpuResource, error) {
 	var res *C.FaissStandardGpuResources
 	if c := C.faiss_StandardGpuResources_new(&res); c != 0 {
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
-	if c := C.faiss_StandardGpuResources_dynamicTempMemory(res); c != 0 {
-		C.faiss_StandardGpuResources_free(res)
-		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
+	pool := memoryPoolStore.poolForDevice(device)
+	if pool != nil {
+		if c := C.faiss_StandardGpuResources_setTempMemoryPool(res, pool.cPtr()); c != 0 {
+			C.faiss_StandardGpuResources_free(res)
+			return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
+		}
+	} else {
+		if c := C.faiss_StandardGpuResources_noTempMemory(res); c != 0 {
+			C.faiss_StandardGpuResources_free(res)
+			return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
+		}
 	}
 	if c := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
