@@ -51,6 +51,9 @@ const (
 const (
 	// reserve atleast 10% of total GPU memory for the the memory pool.
 	defaultGPUPoolBudget = 0.1
+	// reserve 8MB of GPU memory for temporary buffer per GPU index.
+	// NOTE: This number must be divisible by 1024
+	defaultGPUTempMemorySize = 8 * 1024 * 1024 // 8MB
 	// use device memory by default since we already do memory estimation and reservation in our GPU snapshot store.
 	defaultGPUMemoryMode = memorySpaceDevice
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
@@ -652,10 +655,10 @@ func (c *gpuContext) estimateRequiredMemory(cpuIndex *IndexImpl) uint64 {
 			c.options.cPtr(),
 			&size,
 		); rc != 0 {
-			return uint64(numVecs) * c.codeSize
+			return (uint64(numVecs) * c.codeSize) + uint64(defaultGPUTempMemorySize)
 		}
 	}
-	return uint64(size)
+	return uint64(size) + uint64(defaultGPUTempMemorySize)
 }
 
 func (c *gpuContext) releaseMemory(size uint64) {
@@ -676,15 +679,13 @@ func newGPUResource(device int) (*gpuResource, error) {
 	}
 	pool := memoryPoolStore.poolForDevice(device)
 	if pool != nil {
-		if c := C.faiss_StandardGpuResources_setTempMemoryPool(res, pool.cPtr()); c != 0 {
+		if c := C.faiss_StandardGpuResources_setTempMemoryOverflowPool(res, pool.cPtr()); c != 0 {
 			C.faiss_StandardGpuResources_free(res)
 			return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 		}
-	} else {
-		if c := C.faiss_StandardGpuResources_noTempMemory(res); c != 0 {
-			C.faiss_StandardGpuResources_free(res)
-			return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
-		}
+	if c := C.faiss_StandardGpuResources_setTempMemory(res, C.size_t(defaultGPUTempMemorySize)); c != 0 {
+		C.faiss_StandardGpuResources_free(res)
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
 	if c := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
@@ -734,8 +735,7 @@ func (c *gpuClonerOptions) delete() {
 // --------------------------------
 
 // gpuMemoryPoolStore indicates a per-device reusable pool of GPU memory
-// that grows dynamically up to a threshold. It is used for temporary
-// buffers churned by all vector indices on that device.
+// that grows dynamically up to a threshold.
 type gpuMemoryPoolStore struct {
 	devicePool []*gpuMemoryPool
 }
