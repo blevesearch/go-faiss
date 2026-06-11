@@ -683,6 +683,7 @@ func newGPUResource(device int) (*gpuResource, error) {
 			C.faiss_StandardGpuResources_free(res)
 			return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 		}
+	}
 	if c := C.faiss_StandardGpuResources_setTempMemory(res, C.size_t(defaultGPUTempMemorySize)); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
