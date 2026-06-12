@@ -677,6 +677,9 @@ type gpuResource struct {
 	res *C.FaissStandardGpuResources
 }
 
+// newGPUResource creates a new GPU resource handle for the given device,
+// configuring it with the shared memory overflow pool, per-index temporary
+// buffers, and pinned memory for CPU-GPU transfers.
 func newGPUResource(device int) (*gpuResource, error) {
 	var res *C.FaissStandardGpuResources
 	if c := C.faiss_StandardGpuResources_new(&res); c != 0 {
