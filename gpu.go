@@ -51,9 +51,11 @@ const (
 const (
 	// reserve atleast 10% of total GPU memory for the the memory pool.
 	defaultGPUPoolBudget = 0.1
-	// reserve 8MB of GPU memory for temporary buffer per GPU index.
-	// NOTE: This number must be divisible by 1024
-	defaultGPUTempMemorySize = 8 * 1024 * 1024 // 8MB
+	// reserve 8MB of GPU memory for temporary buffer _per_ GPU index.
+	// NOTE: This number must be divisible by 1024.
+	// CAUTION: Setting this number too high can result in degraded performance as we we may end up
+	// reducing the total number of vector indexes in the GPU as a whole.
+	defaultGPUTempMemorySize = 8 * 1024 * 1024
 	// use device memory by default since we already do memory estimation and reservation in our GPU snapshot store.
 	defaultGPUMemoryMode = memorySpaceDevice
 	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
@@ -644,21 +646,24 @@ func (c *gpuContext) reserveMemory(size uint64) error {
 // will consume on this context's device, given the cloner options. It
 // accounts for the interleaved storage layout that faiss uses on the GPU.
 // Falls back to a code_size * ntotal estimate if the C API does not
-// recognize the index type.
+// recognize the index type. Always accounts for the cloned index's temporary memory.
 func (c *gpuContext) estimateRequiredMemory(cpuIndex *IndexImpl) uint64 {
-	var size C.size_t
-	numVecs := cpuIndex.Ntotal()
+	rv := uint64(defaultGPUTempMemorySize)
+	numVecs := uint64(cpuIndex.Ntotal())
 	if numVecs > 0 {
+		var size C.size_t
 		if rc := C.faiss_GpuMemoryEstimate_for_cpu_index(
 			cpuIndex.cPtr(),
 			C.int(c.device),
 			c.options.cPtr(),
 			&size,
 		); rc != 0 {
-			return (uint64(numVecs) * c.codeSize) + uint64(defaultGPUTempMemorySize)
+			rv += numVecs * c.codeSize
+		} else {
+			rv += uint64(size)
 		}
 	}
-	return uint64(size) + uint64(defaultGPUTempMemorySize)
+	return rv
 }
 
 func (c *gpuContext) releaseMemory(size uint64) {
