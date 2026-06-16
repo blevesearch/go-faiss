@@ -58,8 +58,6 @@ const (
 	defaultGPUTempMemorySize = 8 * 1024 * 1024
 	// use device memory by default since we already do memory estimation and reservation in our GPU snapshot store.
 	defaultGPUMemoryMode = memorySpaceDevice
-	// disable pinned memory by default to avoid exhausting CPU memory when cloning multiple indexes to GPU.
-	defaultGPUPinnedMemory = 0
 	// refresh the order in which GPUs are assigned every 500ms.
 	defaultGPULoadBalancerInterval = 500 * time.Millisecond
 )
@@ -696,7 +694,7 @@ func newGPUResource(device int) (*gpuResource, error) {
 		C.faiss_StandardGpuResources_free(res)
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
-	if c := C.faiss_StandardGpuResources_setPinnedMemory(res, C.size_t(defaultGPUPinnedMemory)); c != 0 {
+	if c := C.faiss_StandardGpuResources_noPinnedMemory(res); c != 0 {
 		C.faiss_StandardGpuResources_free(res)
 		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
 	}
