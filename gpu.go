@@ -27,6 +27,7 @@ package faiss
 #include <faiss/c_api/gpu/GpuIndexIVF_c_ex.h>
 #include <faiss/c_api/gpu/GpuMemoryEstimate_c.h>
 #include <faiss/c_api/gpu/GpuMemoryPool_c.h>
+#include <faiss/c_api/gpu/GpuPinnedMemory_c.h>
 */
 import "C"
 import (
@@ -35,6 +36,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // memorySpace controls where GPU index data is allocated.
@@ -413,15 +415,59 @@ func (g *faissGPUIndex) Search(x []float32, k int64) (
 	n := len(x) / g.D()
 	distances := make([]float32, int64(n)*k)
 	labels := make([]int64, int64(n)*k)
-	if c := C.faiss_GpuIndex_search(
-		g.idx,
-		C.idx_t(n),
-		(*C.float)(&x[0]),
-		C.idx_t(k),
-		(*C.float)(&distances[0]),
-		(*C.idx_t)(&labels[0]),
-	); c != 0 {
-		return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
+	// Algorithm for efficient search.
+	// 1. Estimate the total memory required for the search (distances and labels).
+	xSize := uint64(len(x)) * 4
+	distSize := uint64(len(distances)) * 4
+	labelsSize := uint64(len(labels)) * 8
+	totalSize := xSize + distSize + labelsSize
+	// 2. Check if we can use our index's pinned memory to hold this search data.
+	pinned := g.ctx.pinned
+	pinned.reset()
+	if totalSize <= pinned.capacity() {
+		// 3. If we can use the pinned memory, copy the search data to the pinned buffer
+		//    and record the pointers to the data slices in the pinned memory.
+		xBytes := unsafe.Slice((*byte)(unsafe.Pointer(&x[0])), xSize)
+		distBytes := unsafe.Slice((*byte)(unsafe.Pointer(&distances[0])), distSize)
+		labelsBytes := unsafe.Slice((*byte)(unsafe.Pointer(&labels[0])), labelsSize)
+		xPos := pinned.write(xBytes)
+		distPos := pinned.write(distBytes)
+		labelsPos := pinned.write(labelsBytes)
+		// 4. We have now copied our search data to our index's pinned memory.
+		//    Get the pointers to the slices in the pinned memory and use them for the search.
+		xBuf := pinned.read(xPos, xSize)
+		distBuf := pinned.read(distPos, distSize)
+		labelsBuf := pinned.read(labelsPos, labelsSize)
+		if c := C.faiss_GpuIndex_search(
+			g.idx,
+			C.idx_t(n),
+			(*C.float)(unsafe.Pointer(&xBuf[0])),
+			C.idx_t(k),
+			(*C.float)(unsafe.Pointer(&distBuf[0])),
+			(*C.idx_t)(unsafe.Pointer(&labelsBuf[0])),
+		); c != 0 {
+			return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
+		}
+		// 5. Copy the results back from the pinned memory to the original slices.
+		distBufGo := unsafe.Slice((*float32)(unsafe.Pointer(&distBuf[0])), distSize)
+		labelsBufGo := unsafe.Slice((*int64)(unsafe.Pointer(&labelsBuf[0])), labelsSize)
+		copy(distances, distBufGo)
+		copy(labels, labelsBufGo)
+		// 6. Reset the pinned memory for the next search.
+		pinned.reset()
+	} else {
+		// 3. If we cannot fit our search data in pinned memory, we proceed with the search using the original slices,
+		//    which will result in copy from non-pinned CPU memory, which will be considerably slower.
+		if c := C.faiss_GpuIndex_search(
+			g.idx,
+			C.idx_t(n),
+			(*C.float)(&x[0]),
+			C.idx_t(k),
+			(*C.float)(&distances[0]),
+			(*C.idx_t)(&labels[0]),
+		); c != 0 {
+			return nil, nil, newFaissError(ErrSearchFailed, getLastError(), int(c))
+		}
 	}
 	return distances, labels, nil
 }
@@ -593,6 +639,7 @@ func CloneToCPU(gpuIndex *GPUIndexImpl) (*IndexImpl, error) {
 type gpuContext struct {
 	resource    *gpuResource
 	options     *gpuClonerOptions
+	pinned      *gpuPinnedMemory
 	device      int
 	codeSize    uint64
 	memReserved uint64
@@ -608,9 +655,16 @@ func newGPUContext(device int, codeSize uint64) (*gpuContext, error) {
 		res.delete()
 		return nil, err
 	}
+	pinned, err := newGPUPinnedMemory(device, defaultGPUTempMemorySize)
+	if err != nil {
+		res.delete()
+		clonerOpts.delete()
+		return nil, err
+	}
 	return &gpuContext{
 		resource: res,
 		options:  clonerOpts,
+		pinned:   pinned,
 		device:   device,
 		codeSize: codeSize,
 	}, nil
@@ -624,6 +678,10 @@ func (c *gpuContext) delete() {
 	if c.resource != nil {
 		c.resource.delete()
 		c.resource = nil
+	}
+	if c.pinned != nil {
+		c.pinned.delete()
+		c.pinned = nil
 	}
 	if c.memReserved > 0 {
 		c.releaseMemory(c.memReserved)
@@ -789,4 +847,69 @@ func (mp *gpuMemoryPool) delete() {
 		C.faiss_GpuMemoryPool_free(mp.pool)
 		mp.pool = nil
 	}
+}
+
+type gpuPinnedMemory struct {
+	pinned *C.FaissGpuPinnedMemory
+	buf    []byte
+	size   uint64
+	pos    uint64
+}
+
+func newGPUPinnedMemory(device int, size uint64) (*gpuPinnedMemory, error) {
+	var pinned *C.FaissGpuPinnedMemory
+	if c := C.faiss_GpuPinnedMemory_new(
+		C.int(device),
+		C.size_t(size),
+		&pinned,
+	); c != 0 {
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
+	}
+	var buf *C.uint8_t
+	var bufSize C.size_t
+	if c := C.faiss_GpuPinnedMemory_getPinnedMemory(
+		pinned,
+		(**C.uint8_t)(&buf),
+		(*C.size_t)(&bufSize),
+	); c != 0 {
+		C.faiss_GpuPinnedMemory_free(pinned)
+		return nil, newFaissError(ErrGPUContextFailed, getLastError(), int(c))
+	}
+	return &gpuPinnedMemory{
+		pinned: pinned,
+		buf:    unsafe.Slice((*byte)(unsafe.Pointer(buf)), bufSize),
+		size:   uint64(bufSize),
+	}, nil
+}
+
+func (p *gpuPinnedMemory) cPtr() *C.FaissGpuPinnedMemory {
+	return p.pinned
+}
+
+func (p *gpuPinnedMemory) delete() {
+	if p.pinned != nil {
+		C.faiss_GpuPinnedMemory_free(p.pinned)
+		p.pinned = nil
+		p.buf = nil
+		p.size = 0
+	}
+}
+
+func (p *gpuPinnedMemory) reset() {
+	p.pos = 0
+}
+
+func (p *gpuPinnedMemory) write(data []byte) uint64 {
+	cur := p.pos
+	copy(p.buf[cur:], data)
+	p.pos += uint64(len(data))
+	return cur
+}
+
+func (p *gpuPinnedMemory) read(offset, size uint64) []byte {
+	return p.buf[offset : offset+size]
+}
+
+func (p *gpuPinnedMemory) capacity() uint64 {
+	return p.size
 }
