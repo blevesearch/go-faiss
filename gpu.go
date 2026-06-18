@@ -731,13 +731,6 @@ func (r *gpuResource) cPtr() *C.FaissStandardGpuResources {
 	return r.res
 }
 
-func (r *gpuResource) noPinnedMemory() error {
-	if c := C.faiss_StandardGpuResources_noPinnedMemory(r.res); c != 0 {
-		return newFaissError(ErrGPUContextFailed, getLastError(), int(c))
-	}
-	return nil
-}
-
 func (r *gpuResource) delete() {
 	if r.res != nil {
 		C.faiss_StandardGpuResources_free(r.res)
