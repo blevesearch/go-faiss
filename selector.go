@@ -54,10 +54,14 @@ func NewIDSelectorRange(imin, imax int64) (Selector, error) {
 // NewIDSelectorBatch creates a new batch selector.
 func NewIDSelectorBatch(indices []int64) (Selector, error) {
 	var sel *C.FaissIDSelectorBatch
+	var dataPtr *C.idx_t
+	if len(indices) > 0 {
+		dataPtr = (*C.idx_t)(&indices[0])
+	}
 	if c := C.faiss_IDSelectorBatch_new(
 		&sel,
 		C.size_t(len(indices)),
-		(*C.idx_t)(&indices[0]),
+		dataPtr,
 	); c != 0 {
 		return nil, newFaissError(ErrCreateSelectorFailed, getLastError(), int(c))
 	}
@@ -93,10 +97,14 @@ func NewIDSelectorBatchNot(exclude []int64) (Selector, error) {
 // The length of the bitmap should be at least ceil(N/8).
 func NewIDSelectorBitmap(bitmap []byte) (Selector, error) {
 	var sel *C.FaissIDSelectorBitmap
+	var dataPtr *C.uint8_t
+	if len(bitmap) > 0 {
+		dataPtr = (*C.uint8_t)(&bitmap[0])
+	}
 	if c := C.faiss_IDSelectorBitmap_new(
 		&sel,
 		C.size_t(len(bitmap)),
-		(*C.uint8_t)(&bitmap[0]),
+		dataPtr,
 	); c != 0 {
 		return nil, newFaissError(ErrCreateSelectorFailed, getLastError(), int(c))
 	}
