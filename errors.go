@@ -84,6 +84,11 @@ var (
 	ErrNotIVFIndex   = errors.New("index is not an IVF index")
 	ErrNotBIVFIndex  = errors.New("index is not a binary IVF index")
 
+	ErrEmptyCentroidList = errors.New(
+		"no centroids to probe, pre-assigned centroid list is empty")
+	ErrCentroidDistanceMismatch = errors.New(
+		"pre-assigned centroid distances are fewer than the centroid ids")
+
 	// ---- Unsupported operations ----
 
 	ErrMergeFromNotSupported    = errors.New("merge from is not supported for this index type")

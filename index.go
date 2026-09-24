@@ -104,6 +104,19 @@ type Index interface {
 	SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, centroidDis []float32, centroidsToProbe int,
 		x []float32, k int64, include Selector, params json.RawMessage) ([]float32, []int64, error)
 
+	// Applicable only to IVF indexes: reports whether this index and other share
+	// an identical coarse quantizer, i.e. the exact same centroid layout (same
+	// dimensionality, metric, nlist, and bit-identical centroids in the same
+	// order).
+	//
+	// When this holds, list number i denotes the same region of the vector space
+	// in both indexes, so the (centroid id, distance) pairs produced by a coarse
+	// quantizer search on one index can be fed straight into
+	// SearchClustersFromIVFIndex on the other. Indexes whose quantizers were
+	// cloned from a common trained index via SetQuantizers satisfy this;
+	// independently trained indexes generally do not.
+	SameCoarseQuantizer(other Index) (bool, error)
+
 	Reconstruct(key int64) ([]float32, error)
 
 	ReconstructBatch(keys []int64, recons []float32) ([]float32, error)
@@ -354,10 +367,15 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, c
 	if ivfPtr == nil {
 		return nil, nil, ErrNotIVFIndex
 	}
-	// If no include selector is provided, we have no results to return.
-	// return an error indicating that the SearchClustersFromIVFIndex requires a valid selector.
-	if include == nil {
-		return nil, nil, ErrSelectorNil
+	// A nil include selector means no ID filtering: every vector in the probed
+	// clusters is a candidate. This is the normal case for an unfiltered kNN
+	// query that is riding on centroids pre-assigned by another index.
+	// An empty centroid list, on the other hand, leaves nothing to probe.
+	if len(eligibleCentroidIDs) == 0 {
+		return nil, nil, ErrEmptyCentroidList
+	}
+	if len(centroidDis) < len(eligibleCentroidIDs) {
+		return nil, nil, ErrCentroidDistanceMismatch
 	}
 	// create a temporary search params object to set nprobe, this will override
 	// the nprobe and the nlist set at index time, this will allow the search to
@@ -385,7 +403,10 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, c
 	// centroidsToProbe value passed to this function.
 	// If the effective nprobe is greater than the length of eligibleCentroidIDs,
 	// we limit it to the length of eligibleCentroidIDs.
-	effectiveNprobe := min(getNProbeFromSearchParams(searchParams), int32(len(eligibleCentroidIDs)))
+	// Always probe at least one cluster, otherwise the pointers handed to FAISS
+	// below would address an empty slice.
+	effectiveNprobe := max(min(getNProbeFromSearchParams(searchParams),
+		int32(len(eligibleCentroidIDs))), 1)
 	eligibleCentroidIDs = eligibleCentroidIDs[:effectiveNprobe]
 	centroidDis = centroidDis[:effectiveNprobe]
 
@@ -405,6 +426,29 @@ func (idx *faissIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int64, c
 	}
 
 	return distances, labels, nil
+}
+
+func (idx *faissIndex) SameCoarseQuantizer(other Index) (bool, error) {
+	if other == nil {
+		return false, nil
+	}
+	ivfPtr := C.faiss_IndexIVF_cast(idx.cPtr())
+	if ivfPtr == nil {
+		return false, ErrNotIVFIndex
+	}
+	otherIvfPtr := C.faiss_IndexIVF_cast(other.cPtr())
+	if otherIvfPtr == nil {
+		return false, ErrNotIVFIndex
+	}
+	var same C.int
+	if c := C.faiss_IndexIVF_same_coarse_quantizer(
+		ivfPtr,
+		otherIvfPtr,
+		&same,
+	); c != 0 {
+		return false, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
+	}
+	return same != 0, nil
 }
 
 func (idx *faissIndex) AddWithIDs(x []float32, xids []int64) error {

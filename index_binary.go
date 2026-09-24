@@ -95,6 +95,11 @@ type BinaryIndex interface {
 		centroidsToProbe int, xb []uint8, k int64, include Selector,
 		params json.RawMessage) ([]int32, []int64, error)
 
+	// Applicable only to binary IVF indexes: reports whether this index and
+	// other share an identical coarse quantizer, i.e. the exact same centroid
+	// layout. See Index.SameCoarseQuantizer.
+	SameCoarseQuantizer(other BinaryIndex) (bool, error)
+
 	// Size estimates the memory footprint of the index in bytes
 	// if the underlying faiss index is memory-mapped and not fully loaded into memory.
 	Size() uint64
@@ -361,10 +366,15 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 	if ivfPtrBinary == nil {
 		return nil, nil, ErrNotBIVFIndex
 	}
-	// If no include selector is provided, we have no results to return.
-	// return an error indicating that the SearchClustersFromIVFIndex requires a valid selector.
-	if include == nil {
-		return nil, nil, ErrSelectorNil
+	// A nil include selector means no ID filtering: every vector in the probed
+	// clusters is a candidate. This is the normal case for an unfiltered kNN
+	// query that is riding on centroids pre-assigned by another index.
+	// An empty centroid list, on the other hand, leaves nothing to probe.
+	if len(eligibleCentroidIDs) == 0 {
+		return nil, nil, ErrEmptyCentroidList
+	}
+	if len(centroidDis) < len(eligibleCentroidIDs) {
+		return nil, nil, ErrCentroidDistanceMismatch
 	}
 	// create a temporary search params object to set nprobe, this will override
 	// the nprobe and the nlist set at index time, this will allow the search to
@@ -392,7 +402,10 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 	// centroidsToProbe value passed to this function.
 	// If the effective nprobe is greater than the length of eligibleCentroidIDs,
 	// we limit it to the length of eligibleCentroidIDs.
-	effectiveNprobe := min(getNProbeFromSearchParams(searchParams), int32(len(eligibleCentroidIDs)))
+	// Always probe at least one cluster, otherwise the pointers handed to FAISS
+	// below would address an empty slice.
+	effectiveNprobe := max(min(getNProbeFromSearchParams(searchParams),
+		int32(len(eligibleCentroidIDs))), 1)
 	eligibleCentroidIDs = eligibleCentroidIDs[:effectiveNprobe]
 	centroidDis = centroidDis[:effectiveNprobe]
 
@@ -412,6 +425,29 @@ func (b *faissBinaryIndex) SearchClustersFromIVFIndex(eligibleCentroidIDs []int6
 	}
 
 	return distances, labels, nil
+}
+
+func (b *faissBinaryIndex) SameCoarseQuantizer(other BinaryIndex) (bool, error) {
+	if other == nil {
+		return false, nil
+	}
+	ivfPtrBinary := C.faiss_IndexBinaryIVF_cast(b.bIdx)
+	if ivfPtrBinary == nil {
+		return false, ErrNotBIVFIndex
+	}
+	otherIvfPtrBinary := C.faiss_IndexBinaryIVF_cast(other.bPtr())
+	if otherIvfPtrBinary == nil {
+		return false, ErrNotBIVFIndex
+	}
+	var same C.int
+	if c := C.faiss_IndexBinaryIVF_same_coarse_quantizer(
+		ivfPtrBinary,
+		otherIvfPtrBinary,
+		&same,
+	); c != 0 {
+		return false, newFaissError(ErrInspectIndexFailed, getLastError(), int(c))
+	}
+	return same != 0, nil
 }
 
 func (b *faissBinaryIndex) Size() uint64 {
