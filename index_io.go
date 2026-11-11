@@ -2,13 +2,30 @@ package faiss
 
 /*
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <faiss/c_api/index_io_c.h>
 #include <faiss/c_api/index_io_c_ex.h>
+
+extern int cgoFaissChunkSink(void* sink_ptr, uint8_t* data, size_t n);
+
+static int faiss_write_index_chunked_go(
+        const FaissIndex* idx,
+        uintptr_t sink_ptr,
+        size_t chunk_size,
+        size_t* bytes_written) {
+    return faiss_write_index_chunked(
+            idx,
+            (FaissWriteToSink)cgoFaissChunkSink,
+            (void*)sink_ptr,
+            chunk_size,
+            bytes_written);
+}
 */
 import "C"
 import (
 	"fmt"
+	"runtime/cgo"
 	"unsafe"
 )
 
@@ -22,34 +39,98 @@ func WriteIndex(idx Index, filename string) error {
 	return nil
 }
 
+// IndexSerializedSize reports exactly how many bytes WriteIndex would emit
+// for idx, without allocating a buffer to hold them.
+func IndexSerializedSize(idx Index) (uint64, error) {
+	var estimatedSize C.size_t
+	if c := C.faiss_index_serialized_size(idx.cPtr(), &estimatedSize); c != 0 {
+		return 0, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
+	}
+	return uint64(estimatedSize), nil
+}
+
 // WriteIndexIntoBuffer serialises idx directly into Go memory.
 //
 // faiss is asked how many bytes it will emit, Go allocates a buffer of exactly
 // that size, and faiss fills it. The C side allocates nothing at all
 func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
-	var estimatedSize C.size_t
-	if c := C.faiss_index_serialized_size(idx.cPtr(), &estimatedSize); c != 0 {
-		return nil, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
+	estimatedSize, err := IndexSerializedSize(idx)
+	if err != nil {
+		return nil, err
 	}
-	if uint(estimatedSize) == 0 {
+	if estimatedSize == 0 {
 		return []byte{}, nil
 	}
-	buf := make([]byte, uint(estimatedSize))
+	buf := make([]byte, estimatedSize)
 
 	var bytesWritten C.size_t
 	if c := C.faiss_write_index_into_buf(
 		idx.cPtr(),
 		(*C.uint8_t)(unsafe.Pointer(&buf[0])),
-		estimatedSize,
+		C.size_t(estimatedSize),
 		&bytesWritten,
 	); c != 0 {
 		return nil, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
 	}
-	if uint(bytesWritten) != uint(estimatedSize) {
-		return nil, fmt.Errorf("faiss wrote %d bytes into a %d byte buffer", uint(bytesWritten), uint(estimatedSize))
+	if uint64(bytesWritten) != estimatedSize {
+		return nil, fmt.Errorf("faiss wrote %d bytes into a %d byte buffer", uint64(bytesWritten), estimatedSize)
 	}
 
 	return buf, nil
+}
+
+// DefaultWriteChunkSize is the amount accumulated on the C side before each
+// call into Go.
+const DefaultWriteChunkSize = 4 * 1024 * 1024 // 4 MB
+
+// chunkSink is what the trampoline resolves its handle to.
+type chunkSink struct {
+	write func([]byte) error
+	err   error
+}
+
+//export cgoFaissChunkSink
+func cgoFaissChunkSink(sinkPtr unsafe.Pointer, data *C.uint8_t, n C.size_t) C.int {
+	sink := cgo.Handle(uintptr(sinkPtr)).Value().(*chunkSink)
+	// unsafe.Slice aliases the C buffer; it is only valid for this call, which
+	// is why the contract says write it through or copy it. No allocation and
+	// no copy happens here.
+	if err := sink.write(unsafe.Slice((*byte)(unsafe.Pointer(data)), int(n))); err != nil {
+		sink.err = err
+		return 1
+	}
+	return 0
+}
+
+// WriteIndexChunked serialises idx and hands it to write in chunks
+//
+// The slice passed to write aliases a C buffer and is ONLY valid for the
+// duration of the call: write it out or copy it, never retain it.
+//
+// Returns the total number of bytes handed to write.
+func WriteIndexChunked(idx Index, chunkSize int, write func([]byte) error) (uint64, error) {
+	if write == nil {
+		return 0, fmt.Errorf("faiss: WriteIndexChunked needs a write function")
+	}
+	if chunkSize <= 0 {
+		chunkSize = DefaultWriteChunkSize
+	}
+	sink := &chunkSink{write: write}
+	sinkHandle := cgo.NewHandle(sink)
+	defer sinkHandle.Delete()
+
+	var bytesWritten C.size_t
+	rc := C.faiss_write_index_chunked_go(
+		idx.cPtr(), C.uintptr_t(sinkHandle), C.size_t(chunkSize), &bytesWritten)
+	if sink.err != nil {
+		// The sink's own error is the useful one; faiss just reports that the
+		// writer refused.
+		return uint64(bytesWritten), sink.err
+	}
+	if rc != 0 {
+		return 0, newFaissError(ErrWriteIndexFailed, getLastError(), int(rc))
+	}
+	return uint64(bytesWritten), nil
 }
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
