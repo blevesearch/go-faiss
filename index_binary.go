@@ -61,6 +61,9 @@ type BinaryIndex interface {
 	// merges another binary index into this one, currently applicable only for
 	// IVF indexes returns an error
 	MergeFrom(other BinaryIndex, add_id int64) error
+	// CanMergeFrom reports whether MergeFrom would succeed, without
+	// modifying either index.
+	CanMergeFrom(other BinaryIndex) bool
 
 	// queries the index with the vectors in xb
 	// returns the IDs of the k nearest neighbors for each query vector and
@@ -475,4 +478,18 @@ func (idx *faissBinaryIndex) MergeFrom(other BinaryIndex, add_id int64) (err err
 		err = newFaissError(ErrMergeFromFailed, getLastError(), int(c))
 	}
 	return err
+}
+
+// CanMergeFrom reports whether other can be merged into idx, without
+// modifying either index.
+func (idx *faissBinaryIndex) CanMergeFrom(other BinaryIndex) bool {
+	if !(idx.IsIVFIndex() && other.IsIVFIndex()) {
+		return false
+	}
+	var ok C.int
+	if c := C.faiss_IndexBinaryIVF_check_compatible_for_merge(
+		idx.bPtr(), other.bPtr(), &ok); c != 0 {
+		return false
+	}
+	return ok == 1
 }

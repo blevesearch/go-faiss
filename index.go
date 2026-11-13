@@ -110,6 +110,10 @@ type Index interface {
 
 	MergeFrom(other Index, add_id int64) error
 
+	// CanMergeFrom reports whether MergeFrom would succeed, without
+	// modifying either index.
+	CanMergeFrom(other Index) bool
+
 	// RangeSearch queries the index with the vectors in x.
 	// Returns all vectors with distance < radius.
 	RangeSearch(x []float32, radius float32) (*RangeSearchResult, error)
@@ -631,4 +635,14 @@ func IndexFactory(d int, description string, metric int) (*IndexImpl, error) {
 
 func SetOMPThreads(n uint) {
 	C.faiss_set_omp_threads(C.uint(n))
+}
+
+// CanMergeFrom reports whether other can be merged into idx, without
+// modifying either index.
+func (idx *faissIndex) CanMergeFrom(other Index) bool {
+	var ok C.int
+	if c := C.faiss_Index_check_compatible_for_merge(idx.cPtr(), other.cPtr(), &ok); c != 0 {
+		return false
+	}
+	return ok == 1
 }
