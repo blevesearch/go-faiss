@@ -8,6 +8,7 @@ package faiss
 */
 import "C"
 import (
+	"fmt"
 	"unsafe"
 )
 
@@ -21,62 +22,34 @@ func WriteIndex(idx Index, filename string) error {
 	return nil
 }
 
+// WriteIndexIntoBuffer serialises idx directly into Go memory.
+//
+// faiss is asked how many bytes it will emit, Go allocates a buffer of exactly
+// that size, and faiss fills it. The C side allocates nothing at all
 func WriteIndexIntoBuffer(idx Index) ([]byte, error) {
-	// the values to be returned by the faiss APIs
-	tempBuf := (*C.uchar)(nil)
-	bufSize := C.size_t(0)
-
-	if c := C.faiss_write_index_buf(
-		idx.cPtr(),
-		&bufSize,
-		&tempBuf,
-	); c != 0 {
-		C.faiss_free_buf(&tempBuf)
+	var estimatedSize C.size_t
+	if c := C.faiss_index_serialized_size(idx.cPtr(), &estimatedSize); c != 0 {
 		return nil, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
 	}
+	if uint(estimatedSize) == 0 {
+		return []byte{}, nil
+	}
+	buf := make([]byte, uint(estimatedSize))
 
-	// at this point, the idx has a valid ref count. furthermore, the index is
-	// something that's present on the C memory space, so not available to go's
-	// GC. needs to be freed when its of no more use.
+	var bytesWritten C.size_t
+	if c := C.faiss_write_index_into_buf(
+		idx.cPtr(),
+		(*C.uint8_t)(unsafe.Pointer(&buf[0])),
+		estimatedSize,
+		&bytesWritten,
+	); c != 0 {
+		return nil, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
+	}
+	if uint(bytesWritten) != uint(estimatedSize) {
+		return nil, fmt.Errorf("faiss wrote %d bytes into a %d byte buffer", uint(bytesWritten), uint(estimatedSize))
+	}
 
-	// todo: add checksum.
-	// the content populated in the tempBuf is converted from *C.uchar to unsafe.Pointer
-	// and then the pointer is casted into a large byte slice which is then sliced
-	// to a length and capacity equal to bufSize returned across the cgo interface.
-	// NOTE: it still points to the C memory though
-	// the bufSize is of type size_t  which is equivalent to a uint in golang, so
-	// the conversion is safe.
-	val := unsafe.Slice((*byte)(unsafe.Pointer(tempBuf)), uint(bufSize))
-
-	// NOTE: This method is compatible with 64-bit systems but may encounter issues on 32-bit systems.
-	// leading to vector indexing being supported only for 64-bit systems.
-	// This limitation arises because the maximum allowed length of a slice on 32-bit systems
-	// is math.MaxInt32 (2^31-1), whereas the maximum value of a size_t in C++ is math.MaxUInt32
-	// (4^31-1), exceeding the maximum allowed size of a slice in Go.
-	// Consequently, the bufSize returned by faiss_write_index_buf might exceed the
-	// maximum allowed size of a slice in Go, leading to a panic when attempting to
-	// create the following slice rv.
-	rv := make([]byte, uint(bufSize))
-	// an explicit copy is necessary to free the memory on C heap and then return
-	// the rv back to the caller which is definitely on goruntime space (which will
-	// GC'd later on).
-	//
-	// an optimization over here - create buffer pool which can be used to make the
-	// memory allocations cheaper. specifically two separate pools can be utilized,
-	// one for C pointers and another for goruntime. within the faiss_write_index_buf
-	// a cheaper calloc rather than malloc can be used to make any extra allocations
-	// cheaper.
-	copy(rv, val)
-
-	// safe to free the c memory allocated (tempBuf) while serializing the index (must be done
-	// within C runtime for it was allocated there);
-	// rv is from go runtime - so different address space altogether
-	C.faiss_free_buf(&tempBuf)
-
-	// p.s: no need to free "val" since the underlying memory is same as tempBuf (deferred free)
-	val = nil
-
-	return rv, nil
+	return buf, nil
 }
 
 func ReadIndexFromBuffer(buf []byte, ioflags int) (*IndexImpl, error) {
@@ -119,29 +92,35 @@ func ReadIndex(filename string, ioflags int) (*IndexImpl, error) {
 	return &IndexImpl{&idx}, nil
 }
 
+// WriteBinaryIndexIntoBuffer serialises a binary index directly into Go memory.
+//
+// The binary twin of WriteIndexIntoBuffer: faiss is asked how many bytes it
+// will emit, Go allocates a buffer of exactly that size, and faiss fills it.
+// The C side allocates nothing at all
 func WriteBinaryIndexIntoBuffer(idx BinaryIndex) ([]byte, error) {
-	// the values to be returned by the faiss APIs
-	tempBuf := (*C.uchar)(nil)
-	bufSize := C.size_t(0)
-
-	if c := C.faiss_write_index_binary_buf(
-		idx.bPtr(),
-		&bufSize,
-		&tempBuf,
-	); c != 0 {
-		C.faiss_free_buf(&tempBuf)
+	var estimatedSize C.size_t
+	if c := C.faiss_index_binary_serialized_size(idx.bPtr(), &estimatedSize); c != 0 {
 		return nil, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
 	}
+	if uint(estimatedSize) == 0 {
+		return []byte{}, nil
+	}
+	buf := make([]byte, uint(estimatedSize))
 
-	val := unsafe.Slice((*byte)(unsafe.Pointer(tempBuf)), uint(bufSize))
+	var bytesWritten C.size_t
+	if c := C.faiss_write_index_binary_into_buf(
+		idx.bPtr(),
+		(*C.uint8_t)(unsafe.Pointer(&buf[0])),
+		estimatedSize,
+		&bytesWritten,
+	); c != 0 {
+		return nil, newFaissError(ErrWriteIndexFailed, getLastError(), int(c))
+	}
+	if uint(bytesWritten) != uint(estimatedSize) {
+		return nil, fmt.Errorf("faiss wrote %d bytes into a %d byte buffer", uint(bytesWritten), uint(estimatedSize))
+	}
 
-	rv := make([]byte, uint(bufSize))
-	copy(rv, val)
-
-	C.faiss_free_buf(&tempBuf)
-	val = nil
-
-	return rv, nil
+	return buf, nil
 }
 
 func ReadBinaryIndexFromBuffer(buf []byte, ioflags int) (*BinaryIndexImpl, error) {
